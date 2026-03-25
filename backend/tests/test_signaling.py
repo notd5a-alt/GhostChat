@@ -7,7 +7,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from backend.main import app
-from backend.signaling import SignalingRoom
+from backend.signaling import SignalingRoom, _TokenBucket
 
 
 class TestSignalingRoom:
@@ -43,6 +43,32 @@ class TestSignalingRoom:
         room = SignalingRoom("test")
         msg = json.dumps({"type": "ice-candidate", "candidate": "a=candidate:..."})
         assert room._validate(msg) is True
+
+
+class TestTokenBucket:
+    """Unit tests for the rate limiter."""
+
+    def test_allows_up_to_burst(self):
+        bucket = _TokenBucket(rate=100, burst=10)
+        allowed = sum(1 for _ in range(15) if bucket.consume())
+        assert allowed == 10  # burst size
+
+    def test_refills_over_time(self):
+        import time
+        bucket = _TokenBucket(rate=1000, burst=5)
+        # Drain the bucket
+        for _ in range(5):
+            bucket.consume()
+        assert bucket.consume() is False
+        # Wait for refill
+        time.sleep(0.01)  # 10ms at 1000/s = ~10 tokens
+        assert bucket.consume() is True
+
+    def test_rejects_when_empty(self):
+        bucket = _TokenBucket(rate=10, burst=2)
+        assert bucket.consume() is True
+        assert bucket.consume() is True
+        assert bucket.consume() is False
 
 
 class TestSignalingWebSocket:

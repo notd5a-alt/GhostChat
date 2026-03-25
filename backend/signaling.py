@@ -17,6 +17,33 @@ HEARTBEAT_TIMEOUT = 90    # close if no pong within this many seconds
 ALLOWED_TYPES = {"offer", "answer", "ice-candidate", "ping", "pong"}
 VALID_ROLES = {"host", "join"}
 
+# Rate limiting: token bucket per peer
+RATE_LIMIT = 100          # messages per second
+RATE_BURST = 200          # max burst size
+
+
+class _TokenBucket:
+    """Simple token bucket rate limiter."""
+
+    __slots__ = ("_rate", "_burst", "_tokens", "_last")
+
+    def __init__(self, rate: float = RATE_LIMIT, burst: int = RATE_BURST):
+        self._rate = rate
+        self._burst = burst
+        self._tokens = float(burst)
+        self._last = time.monotonic()
+
+    def consume(self) -> bool:
+        """Try to consume one token. Returns True if allowed, False if throttled."""
+        now = time.monotonic()
+        elapsed = now - self._last
+        self._last = now
+        self._tokens = min(self._burst, self._tokens + elapsed * self._rate)
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return True
+        return False
+
 
 class SignalingRoom:
     """Pairs exactly two WebSocket peers (host + join) and relays messages between them."""
@@ -149,10 +176,23 @@ class SignalingRoom:
 
         # Start a heartbeat task for this connection
         heartbeat_task = asyncio.create_task(self._heartbeat(ws, role))
+        bucket = _TokenBucket()
+        throttle_warnings = 0
 
         try:
             while True:
                 data = await ws.receive_text()
+                if not bucket.consume():
+                    throttle_warnings += 1
+                    if throttle_warnings == 1:
+                        logger.warning("[%s] rate limiting %s (>%d msg/s)", self.room_id, role, RATE_LIMIT)
+                    if throttle_warnings >= 500:
+                        logger.warning("[%s] closing %s: sustained rate limit abuse (%d dropped)",
+                                       self.room_id, role, throttle_warnings)
+                        await ws.close(code=4008, reason="Rate limit exceeded")
+                        return
+                    continue
+                throttle_warnings = 0
                 if self._validate(data):
                     msg = json.loads(data)
                     msg_type = msg.get("type")
