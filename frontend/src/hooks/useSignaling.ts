@@ -95,6 +95,13 @@ export default function useSignaling(url: string | null): SignalingHook {
     ws.onmessage = (e: MessageEvent) => {
       try {
         const msg = JSON.parse(e.data) as SignalingMessage;
+        // Auto-reply to server heartbeat pings — prevents 5min timeout teardown
+        if (msg.type === "ping") {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "pong" }));
+          }
+          return;
+        }
         addLog(`WS recv: ${msg.type}`);
         if (onMessageRef.current) {
           onMessageRef.current(msg);

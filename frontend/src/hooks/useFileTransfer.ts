@@ -67,6 +67,8 @@ export default function useFileTransfer(
   const blobUrlsRef = useRef<Map<string, string>>(new Map());
   const activeSendRef = useRef<ActiveSend | null>(null);
   const sendResolveRef = useRef<(() => void) | null>(null);
+  // Track which file ID is currently being received — deterministic chunk routing
+  const activeReceiveIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     hmacKeyRef.current = hmacKey;
@@ -201,6 +203,7 @@ export default function useFileTransfer(
 
           if (msgType === "file-meta") {
             const id = parsed.id as string;
+            activeReceiveIdRef.current = id;
             const compressedSize = (parsed.compressedSize as number) || (parsed.size as number);
             const checksum = (parsed.checksum as string) || "";
             pendingRef.current[id] = {
@@ -228,6 +231,7 @@ export default function useFileTransfer(
             ]);
           } else if (msgType === "file-end") {
             const id = parsed.id as string;
+            if (activeReceiveIdRef.current === id) activeReceiveIdRef.current = null;
             const entry = pendingRef.current[id];
             if (!entry) return;
 
@@ -280,6 +284,9 @@ export default function useFileTransfer(
 
             const resumeFromByte = parsed.receivedBytes as number;
             const resumeFromChunk = parsed.chunkIndex as number;
+            // Validate resume position is within bounds
+            if (resumeFromByte < 0 || resumeFromByte > send.compressedSize ||
+                resumeFromChunk < 0) return;
             send.byteOffset = resumeFromByte;
             send.chunkIndex = resumeFromChunk;
 
@@ -340,6 +347,7 @@ export default function useFileTransfer(
             );
           } else if (msgType === "file-cancel") {
             const id = parsed.id as string;
+            if (activeReceiveIdRef.current === id) activeReceiveIdRef.current = null;
             delete pendingRef.current[id];
             setIncoming((prev) =>
               prev.map((f) =>
@@ -353,11 +361,9 @@ export default function useFileTransfer(
           /* parse error */
         }
       } else {
-        // Binary chunk
-        const ids = Object.keys(pendingRef.current);
-        if (ids.length === 0) return;
-        // Find the active receiving transfer
-        const id = ids.find((i) => pendingRef.current[i].status === "receiving") || ids[ids.length - 1];
+        // Binary chunk — route to the actively receiving file (set on file-meta)
+        const id = activeReceiveIdRef.current;
+        if (!id) return;
         const entry = pendingRef.current[id];
         if (!entry || entry.status !== "receiving") return;
 
@@ -492,9 +498,19 @@ export default function useFileTransfer(
         setOutgoing(null);
         playFileComplete();
       } else {
-        // Paused — wait for resume to complete
+        // Paused — wait for resume, but timeout after 60s to release the lock
         await new Promise<void>((resolve) => {
           sendResolveRef.current = resolve;
+          const timeout = setTimeout(() => {
+            sendResolveRef.current = null;
+            activeSendRef.current = null;
+            sendLockRef.current = false;
+            setOutgoing(null);
+            resolve();
+          }, 60_000);
+          // Clear timeout if resolved normally via resume
+          const origResolve = resolve;
+          sendResolveRef.current = () => { clearTimeout(timeout); origResolve(); };
         });
       }
     } catch {

@@ -121,11 +121,15 @@ export default function useAudioDevices(
   const setOutputDevice = useCallback((deviceId: string) => {
     const el = remoteAudioRef.current;
     if (el && "setSinkId" in el) {
-      (el as any).setSinkId(deviceId).catch((err: Error) => {
+      (el as any).setSinkId(deviceId).then(() => {
+        setSelectedOutput(deviceId);
+      }).catch((err: Error) => {
         console.error("Failed to set output device:", err);
+        setDeviceError(err.message || "Failed to switch speaker");
       });
+    } else {
+      setSelectedOutput(deviceId);
     }
-    setSelectedOutput(deviceId);
   }, [remoteAudioRef]);
 
   return {

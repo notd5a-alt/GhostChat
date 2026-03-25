@@ -206,11 +206,24 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
     let lastNegotiationTime = 0;
     const MIN_NEGOTIATION_INTERVAL = 2000; // ms — prevent rapid renegotiation
 
+    // ICE candidate queue — buffer candidates arriving before remote description
+    const pendingCandidates: RTCIceCandidateInit[] = [];
+
+    const flushPendingCandidates = async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      while (pendingCandidates.length > 0) {
+        const c = pendingCandidates.shift()!;
+        try { await pc.addIceCandidate(c); } catch { /* stale candidate */ }
+      }
+    };
+
     const getNegotiationFingerprint = (): string => {
       const pc = pcRef.current;
       if (!pc) return "";
-      const senders = pc.getSenders().filter((s) => s.track).length;
-      return `s${senders}`;
+      // Include track IDs to detect replaceTrack changes, not just count
+      const ids = pc.getSenders().filter((s) => s.track).map((s) => s.track!.id).sort().join(",");
+      return `s${ids}`;
     };
 
     const enqueueNegotiation = () => {
@@ -274,7 +287,10 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
         if (msg.type === "offer") {
           const collision =
             makingOfferRef.current || pc.signalingState !== "stable";
-          if (collision && host) return;
+          if (collision && host) {
+            log("RTC offer ignored (impolite collision)");
+            return;
+          }
           if (collision) {
             // Rollback must complete before accepting the new offer (spec requirement)
             await pc.setLocalDescription({ type: "rollback" });
@@ -282,6 +298,7 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
           } else {
             await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
           }
+          await flushPendingCandidates();
           const answer = await pc.createAnswer();
           if (answer.sdp) answer.sdp = optimizeOpusInSDP(answer.sdp);
           await pc.setLocalDescription(answer);
@@ -293,11 +310,17 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
         } else if (msg.type === "answer") {
           if (pc.signalingState === "have-local-offer") {
             await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+            await flushPendingCandidates();
           }
         } else if (msg.type === "ice-candidate" && msg.candidate) {
-          try {
-            await pc.addIceCandidate(msg.candidate);
-          } catch { /* ICE candidate error */ }
+          // Queue candidates arriving before remote description is set
+          if (!pc.remoteDescription) {
+            pendingCandidates.push(msg.candidate);
+          } else {
+            try {
+              await pc.addIceCandidate(msg.candidate);
+            } catch { /* stale candidate */ }
+          }
         } else if (msg.type === "peer-joined") {
           log(`RTC peer-joined host=${host} pcState=${pc.signalingState}`);
           peerPresent = true;
@@ -444,8 +467,8 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
 
       // Replace the camera video track with the screen track (no extra tracks)
       const screenTrack = stream.getVideoTracks()[0];
-      // Hint encoder to prioritize smooth motion over pixel-perfect sharpness
-      if ("contentHint" in screenTrack) screenTrack.contentHint = "motion";
+      // Hint encoder to prioritize pixel-perfect sharpness for text/code (most common screen content)
+      if ("contentHint" in screenTrack) screenTrack.contentHint = "detail";
 
       // 1. Find sender with active video track (e.g., camera)
       let videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
@@ -467,13 +490,15 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
         screenVideoSenderRef.current = pc.addTrack(screenTrack, stream);
       }
 
-      // Boost bitrate for screen content (higher res than camera)
+      // Set initial screen share bitrate — bandwidth adaptation will adjust
+      // based on connection quality. Use 2.5Mbps (excellent tier) as starting
+      // point to avoid 4Mbps burst that causes packet loss on poor connections.
       const screenSender = screenVideoSenderRef.current;
       if (screenSender) {
         try {
           const params = screenSender.getParameters();
           if (params.encodings?.length > 0) {
-            params.encodings[0].maxBitrate = 4_000_000; // 4 Mbps for crisp screen
+            params.encodings[0].maxBitrate = 2_500_000;
             params.encodings[0].maxFramerate = 30;
             await screenSender.setParameters(params);
           }
@@ -535,9 +560,11 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
         setCallError("Stop screen sharing before turning the camera on.");
         return;
       }
-      // Turn camera on — get a new video track and add it
+      // Turn camera on — constrain resolution to avoid initial bandwidth spike
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 } },
+        });
         const newTrack = videoStream.getVideoTracks()[0];
         stream.addTrack(newTrack);
         pc.addTrack(newTrack, stream);
@@ -553,14 +580,16 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
   const toggleAudioProcessing = useCallback(async (key: keyof AudioProcessingState) => {
     const track = localStreamRef.current?.getAudioTracks()[0];
     if (!track) return;
-    const nextVal = !audioProcessing[key];
+    // Read current value from track settings (not state) to avoid stale closure
+    const currentSettings = track.getSettings();
+    const nextVal = !(currentSettings[key] ?? true);
     try {
       await track.applyConstraints({ [key]: nextVal });
       setAudioProcessing((prev) => ({ ...prev, [key]: nextVal }));
     } catch {
       // Constraint not supported by this browser/device — don't update state
     }
-  }, [audioProcessing]);
+  }, []);
 
   const getFingerprint = useCallback((): string | null => {
     const sdp = pcRef.current?.localDescription?.sdp;
@@ -583,11 +612,13 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
       const stillExists = audioDevices.some((d) => d.deviceId === currentId);
       if (!stillExists && audioDevices.length > 0) {
         try {
+          // Preserve user's audio processing preferences from current track
+          const settings = currentTrack.getSettings();
           const newStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              noiseSuppression: true,
-              echoCancellation: true,
-              autoGainControl: true,
+              noiseSuppression: settings.noiseSuppression ?? true,
+              echoCancellation: settings.echoCancellation ?? true,
+              autoGainControl: settings.autoGainControl ?? true,
             },
           });
           const newTrack = newStream.getAudioTracks()[0];

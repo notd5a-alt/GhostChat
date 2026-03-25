@@ -24,9 +24,7 @@ describe('optimizeOpusInSDP', () => {
     const result = optimizeOpusInSDP(SAMPLE_SDP);
     expect(result).toContain('usedtx=1');
     expect(result).toContain('useinbandfec=1');
-    expect(result).toContain('maxaveragebitrate=32000');
-    expect(result).toContain('stereo=0');
-    expect(result).toContain('sprop-stereo=0');
+    expect(result).toContain('maxaveragebitrate=48000');
   });
 
   it('merges with existing fmtp params (overrides existing)', () => {
@@ -51,7 +49,7 @@ describe('preferVideoCodecs', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls setCodecPreferences with AV1 first when available', () => {
+  it('calls setCodecPreferences with VP9 first when available', () => {
     const setCodecPreferences = vi.fn();
     // Enable the prototype method
     (RTCRtpTransceiver as any).prototype.setCodecPreferences = vi.fn();
@@ -76,10 +74,10 @@ describe('preferVideoCodecs', () => {
     expect(setCodecPreferences).toHaveBeenCalledTimes(1);
 
     const codecs = setCodecPreferences.mock.calls[0][0];
-    expect(codecs[0].mimeType).toBe('video/AV1');
-    expect(codecs[1].mimeType).toBe('video/VP9');
-    expect(codecs[2].mimeType).toBe('video/VP8');
-    expect(codecs[3].mimeType).toBe('video/H264');
+    expect(codecs[0].mimeType).toBe('video/VP9');
+    expect(codecs[1].mimeType).toBe('video/VP8');
+    expect(codecs[2].mimeType).toBe('video/H264');
+    expect(codecs[3].mimeType).toBe('video/AV1');
   });
 
   it('does nothing when setCodecPreferences is not supported', () => {

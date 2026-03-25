@@ -1,10 +1,12 @@
 // Codec preference configuration for WebRTC
-// Prefers modern codecs (AV1 > VP9 > VP8 for video, Opus for audio)
-// and optimizes Opus for voice communication
+// Prefers VP9 > VP8 > H264 for real-time video (AV1 HW encode support is rare),
+// Opus for audio with voice optimization
 
 /**
  * Set video codec preferences on all video transceivers.
- * Prefers AV1 > VP9 > VP8 (falls back gracefully if codec unavailable).
+ * Prefers VP9 > VP8 > H264 for real-time video.
+ * AV1 is deprioritized — most machines lack HW encode, and software AV1
+ * causes 100ms+ latency and excessive CPU in real-time video.
  */
 export function preferVideoCodecs(pc: RTCPeerConnection): void {
   if (!RTCRtpTransceiver.prototype.setCodecPreferences) return; // Safari fallback
@@ -16,14 +18,14 @@ export function preferVideoCodecs(pc: RTCPeerConnection): void {
         const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs;
         if (!codecs) continue;
 
-        // Sort: AV1 first, then VP9, then VP8, then rest
+        // Sort: VP9 first, then VP8, then H264, then AV1 (needs HW), then rest
         const sorted = [...codecs].sort((a, b) => {
           const rank = (c: { mimeType: string }): number => {
             const mime = c.mimeType.toLowerCase();
-            if (mime.includes("av1") || mime.includes("av01")) return 0;
-            if (mime.includes("vp9")) return 1;
-            if (mime.includes("vp8")) return 2;
-            if (mime.includes("h264")) return 3;
+            if (mime.includes("vp9")) return 0;
+            if (mime.includes("vp8")) return 1;
+            if (mime.includes("h264")) return 2;
+            if (mime.includes("av1") || mime.includes("av01")) return 3;
             return 4;
           };
           return rank(a) - rank(b);
@@ -69,7 +71,7 @@ export function preferAudioCodecs(pc: RTCPeerConnection): void {
 /**
  * Optimize Opus settings in SDP for voice communication.
  * Enables: DTX (saves bandwidth during silence), FEC (resilience to packet loss),
- * Sets: maxaveragebitrate to 32kbps (good quality voice), stereo off.
+ * Sets: maxaveragebitrate to 48kbps (good quality wideband voice).
  */
 export function optimizeOpusInSDP(sdp: string): string {
   if (!sdp) return sdp;
@@ -77,9 +79,8 @@ export function optimizeOpusInSDP(sdp: string): string {
   const opusParams: Record<string, number> = {
     usedtx: 1, // Discontinuous transmission — saves bandwidth during silence
     useinbandfec: 1, // Forward error correction — resilience to packet loss
-    maxaveragebitrate: 32000, // 32kbps — good quality for voice
-    stereo: 0, // Mono — saves bandwidth, voice doesn't need stereo
-    "sprop-stereo": 0,
+    maxaveragebitrate: 48000, // 48kbps — good quality for wideband voice
+    // Don't force mono — screen share system audio may be stereo
   };
 
   // Find ALL Opus payload types (multi-stream SDPs may have more than one)

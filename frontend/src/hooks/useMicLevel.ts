@@ -3,14 +3,20 @@ import { useState, useEffect, useRef } from "react";
 /**
  * Measures microphone input level (0-100) from an audio stream.
  * Used to show a real-time sensitivity meter on the call UI.
+ *
+ * Tracks audio track identity — only recreates AudioContext when the
+ * actual audio track changes, not when the stream object is replaced
+ * (which happens on toggleAudio, toggleVideo, device switch).
  */
 export default function useMicLevel(stream: MediaStream | null): number {
   const [level, setLevel] = useState(0);
   const ctxRef = useRef<AudioContext | null>(null);
+  const prevTrackIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!stream) {
       setLevel(0);
+      prevTrackIdRef.current = null;
       return;
     }
 
@@ -19,6 +25,12 @@ export default function useMicLevel(stream: MediaStream | null): number {
       setLevel(0);
       return;
     }
+
+    // Skip recreation if the actual audio track hasn't changed
+    if (audioTrack.id === prevTrackIdRef.current && ctxRef.current?.state !== "closed") {
+      return;
+    }
+    prevTrackIdRef.current = audioTrack.id;
 
     // Close previous AudioContext before creating new one to prevent exhaustion
     if (ctxRef.current && ctxRef.current.state !== "closed") {

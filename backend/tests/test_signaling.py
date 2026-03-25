@@ -205,10 +205,11 @@ class TestSignalingWebSocket:
         client = TestClient(app)
         # Host connects with a token
         with client.websocket_connect("/ws?role=host&token=secret") as ws1:
-            # Another host tries to connect WITHOUT token or with WRONG token
-            with pytest.raises(Exception): # Starlette raises if connection is rejected/closed during connect
-                with client.websocket_connect("/ws?role=host&token=wrong") as ws2:
-                    pass
+            # Another host tries to connect with WRONG token — socket is accepted then closed
+            with client.websocket_connect("/ws?role=host&token=wrong") as ws2:
+                # The hijacker should receive a close frame (4000)
+                with pytest.raises(Exception):
+                    ws2.receive_json()
             
             # Another host tries to connect WITH CORRECT token - should succeed and replace ws1
             with client.websocket_connect("/ws?role=host&token=secret") as ws3:

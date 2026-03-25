@@ -5,7 +5,7 @@
 export type SignalingState = "closed" | "connecting" | "open" | "reconnecting";
 
 export interface SignalingMessage {
-  type: "offer" | "answer" | "ice-candidate" | "peer-joined" | "peer-disconnected";
+  type: "offer" | "answer" | "ice-candidate" | "peer-joined" | "peer-disconnected" | "ping" | "pong";
   sdp?: string;
   candidate?: RTCIceCandidateInit;
 }

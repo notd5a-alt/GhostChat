@@ -3,6 +3,7 @@ import type { SignalingState, ConnectionQuality, ConnectionType, ConnectionStats
 
 const ICE_RESTART_DELAY = 15000; // wait 15s on "disconnected" before restarting
 const MAX_RESTART_ATTEMPTS = 3;
+const ICE_RESTART_TIMEOUT = 15000; // declare failure if restart doesn't connect in 15s
 const CONNECTION_TIMEOUT = 30000; // 30s to establish initial connection
 const STATS_INTERVAL = 3000; // poll stats every 3s
 
@@ -17,6 +18,14 @@ const BANDWIDTH_TIERS: Record<ConnectionQuality, BandwidthTier> = {
   good:      { maxBitrate: 1_200_000, scaleDown: 1, maxFramerate: 24 },
   poor:      { maxBitrate:   500_000, scaleDown: 2, maxFramerate: 15 },
   critical:  { maxBitrate:   150_000, scaleDown: 4, maxFramerate: 10 },
+};
+
+// Higher bitrate tiers for screen share content (text/code needs more bits)
+const SCREEN_BANDWIDTH_TIERS: Record<ConnectionQuality, BandwidthTier> = {
+  excellent: { maxBitrate: 4_000_000, scaleDown: 1, maxFramerate: 30 },
+  good:      { maxBitrate: 2_000_000, scaleDown: 1, maxFramerate: 24 },
+  poor:      { maxBitrate:   800_000, scaleDown: 1, maxFramerate: 10 },
+  critical:  { maxBitrate:   300_000, scaleDown: 2, maxFramerate: 5 },
 };
 
 export interface ConnectionMonitorResult {
@@ -44,10 +53,14 @@ export default function useConnectionMonitor(
   const restartAttemptsRef = useRef(0);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timeoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevBytesRef = useRef(0);
   const prevTimestampRef = useRef(0);
   const smoothBitrateRef = useRef(0);
+  // Interval-based packet loss tracking (not cumulative)
+  const prevPacketsLostRef = useRef(0);
+  const prevPacketsReceivedRef = useRef(0);
   const qualityCountRef = useRef(0); // consecutive samples at candidate quality
   const candidateQualityRef = useRef<ConnectionQuality | null>(null);
   const signalingStateRef = useRef(signalingState);
@@ -56,9 +69,11 @@ export default function useConnectionMonitor(
   const clearTimers = useCallback(() => {
     if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
     if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+    if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     disconnectTimerRef.current = null;
     timeoutTimerRef.current = null;
+    restartTimeoutRef.current = null;
     statsIntervalRef.current = null;
   }, []);
 
@@ -81,6 +96,15 @@ export default function useConnectionMonitor(
     setIsRecovering(true);
     try {
       pc.restartIce(); // triggers onnegotiationneeded → new offer with ice-restart
+      // Start a timeout — if restart doesn't produce "connected" in time, try again
+      if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = setTimeout(() => {
+        restartTimeoutRef.current = null;
+        const pc = pcRef.current;
+        if (pc && pc.connectionState !== "connected") {
+          attemptRestart();
+        }
+      }, ICE_RESTART_TIMEOUT);
     } catch {
       // restartIce can fail if connection is already closed
       setIsRecovering(false);
@@ -93,8 +117,10 @@ export default function useConnectionMonitor(
     if (connectionState === "connected") {
       if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
       if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
+      if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
       disconnectTimerRef.current = null;
       timeoutTimerRef.current = null;
+      restartTimeoutRef.current = null;
       restartAttemptsRef.current = 0;
       setIsRecovering(false);
       setRecoveryFailed(false);
@@ -120,17 +146,17 @@ export default function useConnectionMonitor(
       prevBytesRef.current = 0;
       prevTimestampRef.current = 0;
       smoothBitrateRef.current = 0;
+      prevPacketsLostRef.current = 0;
+      prevPacketsReceivedRef.current = 0;
       qualityCountRef.current = 0;
       candidateQualityRef.current = null;
     }
   }, [connectionState, attemptRestart, clearTimers]);
 
-  // Connection timeout — start when we first enter a non-new, non-connected state
+  // Connection timeout — only start when actual negotiation begins ("connecting"),
+  // not on "new" which is the idle state before any peer joins
   useEffect(() => {
-    if (
-      connectionState === "connecting" ||
-      connectionState === "new"
-    ) {
+    if (connectionState === "connecting") {
       if (!timeoutTimerRef.current) {
         timeoutTimerRef.current = setTimeout(() => {
           timeoutTimerRef.current = null;
@@ -167,10 +193,10 @@ export default function useConnectionMonitor(
       try {
         const report = await pc.getStats();
         let rtt: number | null = null;
-        let packetsLost = 0;
-        let packetsReceived = 0;
-        let bytesReceived = 0;
-         
+        let totalPacketsLost = 0;
+        let totalPacketsReceived = 0;
+        let totalBytesReceived = 0;
+
         let activePair: any = null;
         let codec: string | null = null;
         let resolution: string | null = null;
@@ -186,13 +212,13 @@ export default function useConnectionMonitor(
           }
           if (stat.type === "inbound-rtp") {
             const rtpStat = stat as RTCInboundRtpStreamStats;
-            if (rtpStat.kind === "audio") {
-              packetsLost += rtpStat.packetsLost || 0;
-              packetsReceived += rtpStat.packetsReceived || 0;
-              bytesReceived += rtpStat.bytesReceived || 0;
-            }
+            // Accumulate packets from both audio and video for loss calculation
+            totalPacketsLost += rtpStat.packetsLost || 0;
+            totalPacketsReceived += rtpStat.packetsReceived || 0;
+            // Accumulate bytes from both audio and video for bitrate
+            totalBytesReceived += rtpStat.bytesReceived || 0;
+
             if (rtpStat.kind === "video") {
-               
               const videoStat = rtpStat as any;
               if (videoStat.frameWidth && videoStat.frameHeight) {
                 resolution = `${videoStat.frameWidth}x${videoStat.frameHeight}`;
@@ -203,7 +229,6 @@ export default function useConnectionMonitor(
               if (videoStat.codecId) {
                 const codecStat = report.get(videoStat.codecId);
                 if (codecStat?.type === "codec") {
-                   
                   const mimeType = (codecStat as any).mimeType as string | undefined;
                   if (mimeType) {
                     codec = mimeType.replace(/^video\//, "").replace(/^audio\//, "");
@@ -218,21 +243,25 @@ export default function useConnectionMonitor(
         if (activePair) {
           const local = report.get(activePair.localCandidateId);
           const remote = report.get(activePair.remoteCandidateId);
-           
           const isRelay =
             (local as any)?.candidateType === "relay" ||
             (remote as any)?.candidateType === "relay";
           setConnectionType(isRelay ? "relay" : "direct");
         }
 
-        const totalPackets = packetsReceived + packetsLost;
-        const lossPercent = totalPackets > 0 ? (packetsLost / totalPackets) * 100 : 0;
+        // Compute interval-based packet loss (not cumulative) for responsive quality signal
+        const intervalLost = totalPacketsLost - prevPacketsLostRef.current;
+        const intervalReceived = totalPacketsReceived - prevPacketsReceivedRef.current;
+        const intervalTotal = intervalReceived + intervalLost;
+        const lossPercent = intervalTotal > 0 ? (intervalLost / intervalTotal) * 100 : 0;
+        prevPacketsLostRef.current = totalPacketsLost;
+        prevPacketsReceivedRef.current = totalPacketsReceived;
 
         const now = performance.now();
         const instantBitrate = prevTimestampRef.current > 0
-          ? ((bytesReceived - prevBytesRef.current) * 8) / ((now - prevTimestampRef.current) / 1000)
+          ? ((totalBytesReceived - prevBytesRef.current) * 8) / ((now - prevTimestampRef.current) / 1000)
           : 0;
-        prevBytesRef.current = bytesReceived;
+        prevBytesRef.current = totalBytesReceived;
         prevTimestampRef.current = now;
 
         // EWMA smoothing (α=0.3) to reduce jitter in bitrate readings
@@ -290,10 +319,6 @@ export default function useConnectionMonitor(
     const pc = pcRef.current;
     if (!pc) return;
 
-    const tier = BANDWIDTH_TIERS[connectionQuality];
-    if (!tier) return;
-    lastTierRef.current = tier;
-
     // Skip if a previous update is still in flight to prevent concurrent setParameters()
     if (applyingParamsRef.current) return;
 
@@ -303,6 +328,13 @@ export default function useConnectionMonitor(
         const senders = pc.getSenders();
         for (const sender of senders) {
           if (sender.track?.kind !== "video") continue;
+          // Use higher bitrate tiers for screen share content (has contentHint set)
+          const isScreenShare = !!sender.track.contentHint;
+          const tier = isScreenShare
+            ? SCREEN_BANDWIDTH_TIERS[connectionQuality]
+            : BANDWIDTH_TIERS[connectionQuality];
+          if (!tier) continue;
+          lastTierRef.current = tier;
           const params = sender.getParameters();
           if (!params.encodings || params.encodings.length === 0) continue;
           // Skip if already at correct bitrate (avoids redundant setParameters calls)

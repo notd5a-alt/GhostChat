@@ -138,7 +138,9 @@ export default function useDataChannel(
       content: text,
       timestamp: Date.now(),
     };
-    signAndSend(ch, hmacKeyRef.current, msg);
+    signAndSend(ch, hmacKeyRef.current, msg).catch((err) =>
+      console.warn("Failed to send message:", err)
+    );
     setMessages((prev) => [...prev, { ...msg, from: "you", reactions: {} }]);
     playMessageSent();
   }, []);
@@ -146,7 +148,7 @@ export default function useDataChannel(
   const sendReaction = useCallback((msgId: string, emoji: string) => {
     const ch = channelRef.current;
     if (!ch || ch.readyState !== "open") return;
-    signAndSend(ch, hmacKeyRef.current, { type: "reaction", msgId, emoji });
+    signAndSend(ch, hmacKeyRef.current, { type: "reaction", msgId, emoji }).catch(() => {});
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id !== msgId) return m;
@@ -165,7 +167,7 @@ export default function useDataChannel(
   const sendReadReceipt = useCallback((msgId: string) => {
     const ch = channelRef.current;
     if (!ch || ch.readyState !== "open") return;
-    signAndSend(ch, hmacKeyRef.current, { type: "read", upTo: msgId });
+    signAndSend(ch, hmacKeyRef.current, { type: "read", upTo: msgId }).catch(() => {});
   }, []);
 
   const sendTyping = useCallback((isTyping: boolean) => {
@@ -176,16 +178,16 @@ export default function useDataChannel(
 
     if (isTyping) {
       if (!lastTypingSentRef.current) {
-        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: true });
+        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: true }).catch(() => {});
         lastTypingSentRef.current = true;
       }
       typingTimeoutRef.current = setTimeout(() => {
-        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: false });
+        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: false }).catch(() => {});
         lastTypingSentRef.current = false;
       }, 3000);
     } else {
       if (lastTypingSentRef.current) {
-        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: false });
+        signAndSend(ch, hmacKeyRef.current, { type: "typing", isTyping: false }).catch(() => {});
         lastTypingSentRef.current = false;
       }
     }
@@ -194,7 +196,7 @@ export default function useDataChannel(
   const sendPresence = useCallback((status: PresenceStatus) => {
     const ch = channelRef.current;
     if (!ch || ch.readyState !== "open") return;
-    signAndSend(ch, hmacKeyRef.current, { type: "presence", status });
+    signAndSend(ch, hmacKeyRef.current, { type: "presence", status }).catch(() => {});
   }, []);
 
   const clearMessages = useCallback(() => {

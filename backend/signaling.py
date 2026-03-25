@@ -182,7 +182,11 @@ class SignalingRoom:
         """Full lifecycle: connect, relay messages, handle disconnect."""
         accepted = await self.connect(ws, role, token)
         if not accepted:
-            await ws.close(code=4000, reason="Invalid role")
+            # connect() may have already closed the socket (e.g., token hijack)
+            try:
+                await ws.close(code=4000, reason="Invalid role")
+            except Exception:
+                pass
             return
 
         # Start a heartbeat task for this connection
@@ -276,7 +280,12 @@ class RoomManager:
     async def remove_empty_rooms(self):
         """Cleanup task to remove rooms with no peers."""
         async with self._lock:
-            empty_rooms = [rid for rid, r in self._rooms.items() if not r._peers]
+            empty_rooms = []
+            for rid, r in self._rooms.items():
+                # Acquire room lock to prevent race with concurrent connect()
+                async with r._lock:
+                    if not r._peers:
+                        empty_rooms.append(rid)
             if empty_rooms:
                 logger.info("Cleaning up %d empty rooms: %s", len(empty_rooms), empty_rooms)
             for rid in empty_rooms:

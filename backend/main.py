@@ -178,6 +178,8 @@ async def websocket_endpoint(ws: WebSocket, room_id: str = "default", role: str 
     allowed = _get_allowed_ws_origins()
     if origin and origin not in allowed:
         logger.warning("Rejected WebSocket from origin %r (allowed: %s)", origin, allowed)
+        # Must accept before close — Starlette raises RuntimeError on close of unaccepted WS
+        await ws.accept()
         await ws.close(code=4003, reason="Forbidden origin")
         return
 

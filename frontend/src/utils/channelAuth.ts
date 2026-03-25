@@ -32,7 +32,8 @@ function concat(...bufs: (ArrayBuffer | Uint8Array)[]): ArrayBuffer {
   const out = new Uint8Array(total);
   let off = 0;
   for (const b of bufs) {
-    out.set(new Uint8Array(b instanceof ArrayBuffer ? b : b.buffer), off);
+    // Handle Uint8Array views correctly — b.buffer may be larger than the view
+    out.set(b instanceof Uint8Array ? b : new Uint8Array(b), off);
     off += b.byteLength;
   }
   return out.buffer;

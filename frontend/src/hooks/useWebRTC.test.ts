@@ -206,7 +206,7 @@ describe('useWebRTC', () => {
     });
   });
 
-  // 10. ice-candidate message adds ICE candidate
+  // 10. ice-candidate message adds ICE candidate (after remote description is set)
   it('ice-candidate message adds ICE candidate', async () => {
     const { result } = renderHook(() => useWebRTC(signaling, true));
 
@@ -216,12 +216,39 @@ describe('useWebRTC', () => {
 
     const handler = getMessageHandler(signaling);
     const pc = result.current.pcRef.current as any;
+    // Remote description must be set first, otherwise candidates are queued
+    pc.remoteDescription = { type: 'answer', sdp: 'v=0\r\nanswer\r\n' };
     const candidate = { candidate: 'candidate:123', sdpMid: '0', sdpMLineIndex: 0 };
 
     await act(async () => {
       await handler({ type: 'ice-candidate', candidate });
     });
 
+    expect(pc.addIceCandidate).toHaveBeenCalledWith(candidate);
+  });
+
+  // 10b. ice-candidate before remote description is queued and flushed
+  it('ice-candidate before remote description is queued then flushed', async () => {
+    const { result } = renderHook(() => useWebRTC(signaling, false));
+
+    act(() => {
+      result.current.init(null);
+    });
+
+    const handler = getMessageHandler(signaling);
+    const pc = result.current.pcRef.current as any;
+    const candidate = { candidate: 'candidate:123', sdpMid: '0', sdpMLineIndex: 0 };
+
+    // Send candidate before remote description — should be queued
+    await act(async () => {
+      await handler({ type: 'ice-candidate', candidate });
+    });
+    expect(pc.addIceCandidate).not.toHaveBeenCalled();
+
+    // Now send an offer — remote description gets set, candidates flushed
+    await act(async () => {
+      await handler({ type: 'offer', sdp: 'v=0\r\noffer-sdp\r\n' });
+    });
     expect(pc.addIceCandidate).toHaveBeenCalledWith(candidate);
   });
 
