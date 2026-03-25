@@ -141,21 +141,33 @@ class TestSignalingWebSocket:
                 assert received["type"] == "answer"
 
     def test_peer_disconnect_notifies_other(self):
+        """When one peer disconnects, the other receives peer-disconnected."""
+        import uuid
+        import time
+        room_id = f"test-disconnect-{uuid.uuid4().hex[:8]}"
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
-                ws1.receive_json()
-                ws2.receive_json()
+        with client.websocket_connect(f"/ws/{room_id}?role=host") as ws1:
+            with client.websocket_connect(f"/ws/{room_id}?role=join") as ws2:
+                ws1.receive_json()  # peer-joined
+                ws2.receive_json()  # peer-joined
+                ws2.close()
+                # Give the server time to process the disconnect
+                time.sleep(0.5)
 
-            # ws2 context exits (disconnects)
-            # Skip heartbeat pings (respond with pong to prevent timeout)
-            for _ in range(10):
-                msg = ws1.receive_json()
+            # Read messages, skipping pings, looking for peer-disconnected
+            found = False
+            for _ in range(5):
+                try:
+                    msg = ws1.receive_json()
+                except Exception:
+                    break
                 if msg["type"] == "ping":
                     ws1.send_json({"type": "pong"})
                     continue
-                break
-            assert msg["type"] == "peer-disconnected"
+                if msg["type"] == "peer-disconnected":
+                    found = True
+                    break
+            assert found, "Expected peer-disconnected notification"
 
     def test_token_protection(self):
         client = TestClient(app)
