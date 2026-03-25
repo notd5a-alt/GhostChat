@@ -87,7 +87,12 @@ export default function Lobby({
           </button>
         </div>
       ) : (
-        <span className="ascii-spinner">{SPINNER_CHARS[spinIdx]}</span>
+        <div className="lobby-actions">
+          <span className="ascii-spinner">{SPINNER_CHARS[spinIdx]}</span>
+          <button className="btn" onClick={onCancel}>
+            [ CANCEL ]
+          </button>
+        </div>
       )}
 
       <div style={{
