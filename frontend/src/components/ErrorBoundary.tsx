@@ -20,7 +20,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("GhostChat crashed:", error, info.componentStack);
+    console.error("Synced crashed:", error, info.componentStack);
   }
 
   render() {

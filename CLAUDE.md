@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-GhostChat is a zero-trust peer-to-peer desktop app for 1-on-1 voice/video calls, text chat, and file sharing. All media and data flows directly between peers via WebRTC (encrypted with DTLS-SRTP). The signaling server only relays connection setup messages — it never sees user content.
+Synced is a zero-trust peer-to-peer desktop app for 1-on-1 voice/video calls, text chat, and file sharing. All media and data flows directly between peers via WebRTC (encrypted with DTLS-SRTP). The signaling server only relays connection setup messages — it never sees user content.
 
 ## Commands
 

@@ -48,13 +48,13 @@ fn main() {
                 // Production: spawn the Python sidecar (FastAPI backend)
                 let sidecar_cmd = app
                     .shell()
-                    .sidecar("ghostchat-server")
+                    .sidecar("synced-server")
                     .expect("failed to create sidecar command")
                     .args(["--port", &port.to_string()]);
 
                 let (mut rx, child) = sidecar_cmd
                     .spawn()
-                    .expect("failed to spawn ghostchat-server sidecar");
+                    .expect("failed to spawn synced-server sidecar");
 
                 // Store child handle for cleanup
                 app.manage(SidecarState(Mutex::new(Some(child))));

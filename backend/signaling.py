@@ -8,7 +8,7 @@ from typing import Dict
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-logger = logging.getLogger("ghostchat.signaling")
+logger = logging.getLogger("synced.signaling")
 
 MAX_MESSAGE_SIZE = 65536  # 64 KB
 MAX_ROOMS = 100           # Cap total rooms (= 200 max connections)

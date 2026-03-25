@@ -117,11 +117,11 @@ jobs:
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-linux-appimage
+          name: synced-linux-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
 
       - name: Upload deb package
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-linux-deb
+          name: synced-linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb

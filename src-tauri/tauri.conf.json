@@ -1,7 +1,7 @@
 {
-  "productName": "GhostChat",
+  "productName": "Synced",
   "version": "0.1.0",
-  "identifier": "com.ghostchat.desktop",
+  "identifier": "com.synced.desktop",
   "build": {
     "beforeBuildCommand": "",
     "beforeDevCommand": "",
@@ -14,7 +14,7 @@
     },
     "windows": [
       {
-        "title": "GhostChat",
+        "title": "Synced",
         "width": 960,
         "height": 700,
         "minWidth": 640,
@@ -27,7 +27,7 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/ghostchat-server"
+      "binaries/synced-server"
     ],
     "icon": [
       "icons/32x32.png",

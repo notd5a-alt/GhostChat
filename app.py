@@ -1,4 +1,4 @@
-"""GhostChat – zero-trust P2P desktop chat.
+"""Synced – zero-trust P2P desktop chat.
 
 Development entry point. Starts the FastAPI backend server.
 For production, use Tauri which spawns backend/sidecar_entry.py as a sidecar.
@@ -36,7 +36,7 @@ def _wait_for_server(url: str, timeout: float = 10.0):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GhostChat")
+    parser = argparse.ArgumentParser(description="Synced")
     parser.add_argument("--port", type=int, default=9876)
     parser.add_argument("--dev", action="store_true", help="Dev mode (default, kept for compat)")
     parser.add_argument("--log-level", default="INFO",
@@ -60,7 +60,7 @@ def main():
     local_url = f"http://localhost:{args.port}"
     _wait_for_server(local_url)
 
-    print(f"GhostChat backend running at {local_url}")
+    print(f"Synced backend running at {local_url}")
     print("Start the Vite dev server: cd frontend && npm run dev")
     print("Or use Tauri dev:          cargo tauri dev")
     try:

@@ -1,5 +1,5 @@
 [project]
-name = "ghostchat"
+name = "synced"
 version = "0.1.0"
 description = "Zero-trust peer-to-peer voice, video, and text chat"
 requires-python = ">=3.12"
@@ -20,4 +20,4 @@ dev = [
 include = ["backend*"]
 
 [project.scripts]
-ghostchat = "app:main"
+synced = "app:main"

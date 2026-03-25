@@ -22,7 +22,7 @@ echo "Building sidecar for target: ${TRIPLE}"
 cd "$PROJECT_ROOT"
 pyinstaller \
     --onefile \
-    --name ghostchat-server \
+    --name synced-server \
     --strip \
     --add-data "${PROJECT_ROOT}/backend/static:backend/static" \
     --distpath src-tauri/binaries \
@@ -43,12 +43,12 @@ pyinstaller \
     backend/sidecar_entry.py
 
 # Rename with target triple suffix
-if [ -f "src-tauri/binaries/ghostchat-server" ]; then
-    mv "src-tauri/binaries/ghostchat-server" "src-tauri/binaries/ghostchat-server-${TRIPLE}"
-    echo "Sidecar built: src-tauri/binaries/ghostchat-server-${TRIPLE}"
-elif [ -f "src-tauri/binaries/ghostchat-server.exe" ]; then
-    mv "src-tauri/binaries/ghostchat-server.exe" "src-tauri/binaries/ghostchat-server-${TRIPLE}.exe"
-    echo "Sidecar built: src-tauri/binaries/ghostchat-server-${TRIPLE}.exe"
+if [ -f "src-tauri/binaries/synced-server" ]; then
+    mv "src-tauri/binaries/synced-server" "src-tauri/binaries/synced-server-${TRIPLE}"
+    echo "Sidecar built: src-tauri/binaries/synced-server-${TRIPLE}"
+elif [ -f "src-tauri/binaries/synced-server.exe" ]; then
+    mv "src-tauri/binaries/synced-server.exe" "src-tauri/binaries/synced-server-${TRIPLE}.exe"
+    echo "Sidecar built: src-tauri/binaries/synced-server-${TRIPLE}.exe"
 else
     echo "ERROR: PyInstaller output not found"
     exit 1

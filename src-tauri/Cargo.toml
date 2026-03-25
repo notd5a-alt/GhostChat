@@ -1,5 +1,5 @@
 [package]
-name = "ghostchat"
+name = "synced"
 version = "0.1.0"
 description = "Zero-trust peer-to-peer voice, video, and text chat"
 edition = "2021"

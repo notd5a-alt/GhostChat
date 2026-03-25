@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from backend.signaling import manager, RoomLimitError
 
-logger = logging.getLogger("ghostchat.server")
+logger = logging.getLogger("synced.server")
 
 # Will be set by app.py at startup
 server_port: int = 9876
@@ -112,8 +112,8 @@ async def info():
 
 @app.get("/api/debug")
 async def debug(room_id: str = "default"):
-    """Debug endpoint — only available when GHOSTCHAT_DEBUG=1."""
-    if os.environ.get("GHOSTCHAT_DEBUG") != "1":
+    """Debug endpoint — only available when SYNCED_DEBUG=1."""
+    if os.environ.get("SYNCED_DEBUG") != "1":
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
     room = await manager.get_room(room_id)
     return {

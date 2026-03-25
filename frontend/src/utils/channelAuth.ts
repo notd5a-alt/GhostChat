@@ -2,7 +2,7 @@
 // Derives a shared key from both peers' DTLS fingerprints (sorted
 // lexicographically so host and joiner compute the same key).
 
-const SALT = new TextEncoder().encode("ghostchat-hmac-v1");
+const SALT = new TextEncoder().encode("synced-hmac-v1");
 const HMAC_LEN = 32; // SHA-256 output
 
 function extractFingerprint(sdp: string): string | null {

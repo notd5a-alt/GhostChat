@@ -50,7 +50,7 @@ async def test_ice_config_stun_only_without_turn_env(client):
 
 @pytest.mark.anyio
 async def test_debug_endpoint_gated(client):
-    """Debug endpoint returns 404 unless GHOSTCHAT_DEBUG=1."""
+    """Debug endpoint returns 404 unless SYNCED_DEBUG=1."""
     resp = await client.get("/api/debug")
     assert resp.status_code == 404
 

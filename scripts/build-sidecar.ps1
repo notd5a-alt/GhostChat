@@ -28,7 +28,7 @@ New-Item -ItemType Directory -Force -Path $DistPath | Out-Null
 # Build with PyInstaller
 pyinstaller `
     --onefile `
-    --name ghostchat-server `
+    --name synced-server `
     --add-data "$(Join-Path (Join-Path $ProjectRoot 'backend') 'static');backend\static" `
     --distpath $DistPath `
     --workpath (Join-Path (Join-Path $ProjectRoot "build") "pyinstaller") `
@@ -53,8 +53,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Rename with target triple suffix
-$Exe = Join-Path $DistPath "ghostchat-server.exe"
-$Target = Join-Path $DistPath "ghostchat-server-$Triple.exe"
+$Exe = Join-Path $DistPath "synced-server.exe"
+$Target = Join-Path $DistPath "synced-server-$Triple.exe"
 
 Write-Host "Looking for: $Exe"
 

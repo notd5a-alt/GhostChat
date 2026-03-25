@@ -343,7 +343,7 @@ export default function App() {
     <div className="session">
       <header className="session-header">
         <img src="/logo.png" alt="" className="header-logo" />
-        <span className="brand">{"> "}GHOSTCHAT</span>
+        <span className="brand">{"> "}SYNCED</span>
         {chat.peerPresence && (
           <span className={`presence-indicator ${chat.peerPresence}`}>
             <span className="presence-dot" />

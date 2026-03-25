@@ -13,8 +13,8 @@ export default function Home({ onHost, onJoin, themeId, onThemeChange }: HomePro
 
   return (
     <div className="home">
-      <img src="/logo.png" alt="GhostChat" className="home-logo" />
-      <h1>GhostChat</h1>
+      <img src="/logo.png" alt="Synced" className="home-logo" />
+      <h1>Synced</h1>
       <p className="subtitle">Encrypted peer-to-peer communication. No accounts. No traces.</p>
 
       <div className="home-actions">

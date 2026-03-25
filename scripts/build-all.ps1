@@ -1,11 +1,11 @@
-# Full production build for GhostChat on Windows.
+# Full production build for Synced on Windows.
 # Builds frontend, Python sidecar, and Tauri installer.
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $ProjectRoot
 
-Write-Host "=== GhostChat Windows Build ===" -ForegroundColor Cyan
+Write-Host "=== Synced Windows Build ===" -ForegroundColor Cyan
 Write-Host ""
 
 # --- Prerequisite checks ---

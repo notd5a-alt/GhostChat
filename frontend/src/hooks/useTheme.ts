@@ -143,7 +143,7 @@ export const themes: ThemeDefinition[] = [
   },
 ];
 
-const STORAGE_KEY = "ghostchat-theme";
+const STORAGE_KEY = "synced-theme";
 const DEFAULT_THEME = "terminal";
 
 function applyTheme(theme: ThemeDefinition) {

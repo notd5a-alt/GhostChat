@@ -1,4 +1,4 @@
-// Shared type definitions for GhostChat frontend
+// Shared type definitions for Synced frontend
 
 // --- Signaling ---
 

@@ -101,11 +101,11 @@ jobs:
       - name: Upload dmg
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-macos-dmg
+          name: synced-macos-dmg
           path: src-tauri/target/release/bundle/dmg/*.dmg
 
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-macos-app
+          name: synced-macos-app
           path: src-tauri/target/release/bundle/macos/*.app

@@ -81,7 +81,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $distPath | Out-Null
           pyinstaller `
             --onefile `
-            --name ghostchat-server `
+            --name synced-server `
             --add-data "$staticSrc;backend\static" `
             --distpath $distPath `
             --workpath (Join-Path (Join-Path $root "build") "pyinstaller") `
@@ -99,8 +99,8 @@ jobs:
             --exclude-module rich `
             --exclude-module chardet `
             backend\sidecar_entry.py
-          $exe = Join-Path $distPath "ghostchat-server.exe"
-          $target = Join-Path $distPath "ghostchat-server-$triple.exe"
+          $exe = Join-Path $distPath "synced-server.exe"
+          $target = Join-Path $distPath "synced-server-$triple.exe"
           Move-Item -Force $exe $target
           Write-Host "Sidecar built: $target"
         shell: pwsh
@@ -114,11 +114,11 @@ jobs:
       - name: Upload MSI installer
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-windows-installer
+          name: synced-windows-installer
           path: src-tauri/target/release/bundle/msi/*.msi
 
       - name: Upload portable exe
         uses: actions/upload-artifact@v4
         with:
-          name: ghostchat-windows-exe
-          path: src-tauri/target/release/GhostChat.exe
+          name: synced-windows-exe
+          path: src-tauri/target/release/Synced.exe

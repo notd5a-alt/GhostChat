@@ -1075,7 +1075,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ghostchat"
+name = "synced"
 version = "0.1.0"
 dependencies = [
  "serde",

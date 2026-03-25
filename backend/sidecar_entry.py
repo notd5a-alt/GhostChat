@@ -7,7 +7,7 @@ import uvicorn
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GhostChat backend sidecar")
+    parser = argparse.ArgumentParser(description="Synced backend sidecar")
     parser.add_argument("--port", type=int, default=9876)
     args = parser.parse_args()
 
