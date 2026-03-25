@@ -143,6 +143,11 @@ input[type="text"]:focus:placeholder-shown {
   gap: 16px;
   padding: 24px;
 }
+.home-logo {
+  width: 96px;
+  height: 96px;
+  image-rendering: pixelated;
+}
 .home h1 {
   font-size: 3.5rem;
   letter-spacing: -0.05em;
@@ -235,6 +240,11 @@ input[type="text"]:focus:placeholder-shown {
   gap: 12px;
   padding: 8px 16px;
   background: var(--surface);
+}
+.header-logo {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
 }
 .brand {
   font-weight: 700;
@@ -483,3 +493,41 @@ input[type="text"]:focus:placeholder-shown {
 }
 .transfer-info { font-size: 0.75rem; color: var(--text-dim); white-space: nowrap; }
 .transfer a.btn { text-decoration: none; }
+
+/* ============================================================
+   RESPONSIVE — MOBILE (max-width: 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Touch targets — WCAG 44px minimum */
+  .btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .tabs button { padding: 8px 12px; min-height: 44px; }
+  input[type="text"] { min-height: 44px; }
+
+  /* Home */
+  .home-logo { width: 64px; height: 64px; }
+  .home h1 { font-size: 2.25rem; }
+  .home-actions { width: 100%; max-width: 320px; padding: 0 16px; }
+
+  /* Lobby */
+  .addr-box { flex-wrap: wrap; justify-content: center; }
+  .addr { word-break: break-all; text-align: center; }
+
+  /* Session header — wrap into two rows */
+  .session-header { flex-wrap: wrap; gap: 8px; }
+  .fingerprint { display: none; }
+  .tabs { width: 100%; justify-content: center; order: 1; }
+  .tabs button { flex: 1; text-align: center; }
+
+  /* Chat */
+  .msg { max-width: 90%; }
+
+  /* Video call */
+  .local-video { width: 100px; }
+  .screen-preview { width: 100px; }
+  .call-controls { flex-wrap: wrap; }
+  .call-controls .btn { padding: 8px 10px; font-size: 0.75rem; }
+
+  /* File share */
+  .drop-zone { padding: 16px; }
+  .transfer { flex-wrap: wrap; }
+}

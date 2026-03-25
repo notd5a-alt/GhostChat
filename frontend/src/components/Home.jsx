@@ -5,6 +5,7 @@ export default function Home({ onHost, onJoin }) {
 
   return (
     <div className="home">
+      <img src="/logo.png" alt="GhostChat" className="home-logo" />
       <h1>GhostChat</h1>
       <p className="subtitle">Encrypted peer-to-peer communication. No accounts. No traces.</p>
 

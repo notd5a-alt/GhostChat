@@ -167,6 +167,7 @@ export default function App() {
   return (
     <div className="session">
       <header className="session-header">
+        <img src="/logo.png" alt="" className="header-logo" />
         <span className="brand">{"> "}GHOSTCHAT</span>
         {fingerprint && (
           <span className="fingerprint" title="DTLS fingerprint — verify with your peer">
