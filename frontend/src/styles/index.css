@@ -230,6 +230,46 @@ input[type="text"]:focus:placeholder-shown {
   font-size: 0.75rem;
   margin-top: 0.5rem;
 }
+
+/* Server settings */
+.server-settings-toggle {
+  margin-top: 8px;
+  opacity: 0.5;
+}
+.server-settings-toggle:hover {
+  opacity: 1;
+}
+.server-settings {
+  width: 320px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--outline);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.server-mode-toggle {
+  display: flex;
+  gap: 4px;
+}
+.server-mode-toggle .btn {
+  flex: 1;
+  text-align: center;
+}
+.server-mode-toggle .btn.active {
+  background: var(--text);
+  color: var(--bg);
+}
+.server-url-input {
+  width: 100%;
+  font-size: 0.75rem;
+}
+.server-hint {
+  color: var(--text-dim);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 .status-text {
   color: var(--text-dim);
   font-size: 0.6875rem;

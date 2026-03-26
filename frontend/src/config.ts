@@ -1,19 +1,46 @@
 /**
  * Signaling server URL resolution.
  *
- * Priority:
- *  1. VITE_SIGNALING_URL build-time env var (baked into the SPA)
- *  2. localStorage "synced_signaling_url" (user-configured)
- *  3. window.location.origin (same-origin — backward compat with local mode)
+ * Modes:
+ *  - "local"  → use window.location.origin (sidecar / local backend)
+ *  - "remote" → use a user-configured remote signaling server URL
+ *
+ * Persisted in localStorage so the choice survives reloads.
  */
 
-export function getSignalingBaseUrl(): string {
+export type ServerMode = "local" | "remote";
+
+const MODE_KEY = "synced_server_mode";
+const URL_KEY = "synced_signaling_url";
+
+export function getServerMode(): ServerMode {
+  const stored = localStorage.getItem(MODE_KEY);
+  if (stored === "remote") return "remote";
+  // If VITE_SIGNALING_URL is baked in, default to remote
+  if (import.meta.env.VITE_SIGNALING_URL) return "remote";
+  return "local";
+}
+
+export function setServerMode(mode: ServerMode): void {
+  localStorage.setItem(MODE_KEY, mode);
+}
+
+export function getRemoteUrl(): string {
   const envUrl = import.meta.env.VITE_SIGNALING_URL;
   if (envUrl) return (envUrl as string).replace(/\/+$/, "");
+  return localStorage.getItem(URL_KEY)?.replace(/\/+$/, "") ?? "";
+}
 
-  const stored = localStorage.getItem("synced_signaling_url");
-  if (stored) return stored.replace(/\/+$/, "");
+export function setRemoteUrl(url: string): void {
+  localStorage.setItem(URL_KEY, url.replace(/\/+$/, ""));
+}
 
+export function getSignalingBaseUrl(): string {
+  const mode = getServerMode();
+  if (mode === "remote") {
+    const remote = getRemoteUrl();
+    if (remote) return remote;
+  }
   return window.location.origin;
 }
 

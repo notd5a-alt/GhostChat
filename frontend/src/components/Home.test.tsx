@@ -38,4 +38,16 @@ describe('Home', () => {
     render(<Home onCreateRoom={vi.fn()} onJoinRoom={vi.fn()} roomError="Room not found." themeId="default" onThemeChange={vi.fn()} />);
     expect(screen.getByText('Room not found.')).toBeInTheDocument();
   });
+
+  it('shows server settings toggle', () => {
+    render(<Home onCreateRoom={vi.fn()} onJoinRoom={vi.fn()} roomError={null} themeId="default" onThemeChange={vi.fn()} />);
+    expect(screen.getByText('[ SERVER ]')).toBeInTheDocument();
+  });
+
+  it('toggles server settings panel', async () => {
+    render(<Home onCreateRoom={vi.fn()} onJoinRoom={vi.fn()} roomError={null} themeId="default" onThemeChange={vi.fn()} />);
+    await userEvent.click(screen.getByText('[ SERVER ]'));
+    expect(screen.getByText('LOCAL')).toBeInTheDocument();
+    expect(screen.getByText('REMOTE')).toBeInTheDocument();
+  });
 });

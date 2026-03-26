@@ -1,5 +1,12 @@
 import { useState, type FormEvent } from "react";
 import ThemeSelector from "./ThemeSelector";
+import {
+  getServerMode,
+  setServerMode,
+  getRemoteUrl,
+  setRemoteUrl,
+  type ServerMode,
+} from "../config";
 
 interface HomeProps {
   onCreateRoom: () => void;
@@ -11,6 +18,21 @@ interface HomeProps {
 
 export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onThemeChange }: HomeProps) {
   const [joinCode, setJoinCode] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [serverMode, setServerModeState] = useState<ServerMode>(getServerMode);
+  const [remoteUrl, setRemoteUrlState] = useState(getRemoteUrl);
+
+  const handleModeChange = (mode: ServerMode) => {
+    setServerModeState(mode);
+    setServerMode(mode);
+  };
+
+  const handleUrlChange = (url: string) => {
+    setRemoteUrlState(url);
+    setRemoteUrl(url);
+  };
+
+  const remoteReady = serverMode === "local" || remoteUrl.trim().length > 0;
 
   return (
     <div className="home">
@@ -19,7 +41,11 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
       <p className="subtitle">Encrypted peer-to-peer communication. No accounts. No traces.</p>
 
       <div className="home-actions">
-        <button className="btn primary" onClick={onCreateRoom}>
+        <button
+          className="btn primary"
+          onClick={onCreateRoom}
+          disabled={!remoteReady}
+        >
           Create Room
         </button>
 
@@ -39,7 +65,7 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
             style={{ textTransform: "uppercase", letterSpacing: "0.15em" }}
           />
-          <button className="btn" type="submit" disabled={!joinCode.trim()}>
+          <button className="btn" type="submit" disabled={!joinCode.trim() || !remoteReady}>
             [ JOIN ]
           </button>
         </form>
@@ -48,6 +74,55 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
           <p className="room-error">{roomError}</p>
         )}
       </div>
+
+      <button
+        className="btn small server-settings-toggle"
+        onClick={() => setShowSettings((s) => !s)}
+      >
+        {showSettings ? "[ HIDE SERVER ]" : "[ SERVER ]"}
+      </button>
+
+      {showSettings && (
+        <div className="server-settings">
+          <div className="server-mode-toggle">
+            <button
+              className={`btn small ${serverMode === "local" ? "active" : ""}`}
+              onClick={() => handleModeChange("local")}
+            >
+              LOCAL
+            </button>
+            <button
+              className={`btn small ${serverMode === "remote" ? "active" : ""}`}
+              onClick={() => handleModeChange("remote")}
+            >
+              REMOTE
+            </button>
+          </div>
+
+          {serverMode === "local" && (
+            <p className="server-hint">
+              Using local backend (localhost). Both peers must be on the same network.
+            </p>
+          )}
+
+          {serverMode === "remote" && (
+            <>
+              <input
+                type="text"
+                className="server-url-input"
+                placeholder="http://your-server:9876"
+                value={remoteUrl}
+                onChange={(e) => handleUrlChange(e.target.value)}
+              />
+              <p className="server-hint">
+                {remoteUrl.trim()
+                  ? `Signaling via ${remoteUrl.trim()}`
+                  : "Enter your signaling server URL to connect."}
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       <ThemeSelector currentTheme={themeId} onSelect={onThemeChange} />
     </div>
