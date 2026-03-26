@@ -4,7 +4,7 @@ import {
   getServerMode,
   setServerMode,
   getRemoteUrl,
-  setRemoteUrl,
+  DEFAULT_REMOTE_URL,
   type ServerMode,
 } from "../config";
 
@@ -20,19 +20,11 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
   const [joinCode, setJoinCode] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [serverMode, setServerModeState] = useState<ServerMode>(getServerMode);
-  const [remoteUrl, setRemoteUrlState] = useState(getRemoteUrl);
 
   const handleModeChange = (mode: ServerMode) => {
     setServerModeState(mode);
     setServerMode(mode);
   };
-
-  const handleUrlChange = (url: string) => {
-    setRemoteUrlState(url);
-    setRemoteUrl(url);
-  };
-
-  const remoteReady = serverMode === "local" || remoteUrl.trim().length > 0;
 
   return (
     <div className="home">
@@ -41,11 +33,7 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
       <p className="subtitle">Encrypted peer-to-peer communication. No accounts. No traces.</p>
 
       <div className="home-actions">
-        <button
-          className="btn primary"
-          onClick={onCreateRoom}
-          disabled={!remoteReady}
-        >
+        <button className="btn primary" onClick={onCreateRoom}>
           Create Room
         </button>
 
@@ -65,7 +53,7 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
             style={{ textTransform: "uppercase", letterSpacing: "0.15em" }}
           />
-          <button className="btn" type="submit" disabled={!joinCode.trim() || !remoteReady}>
+          <button className="btn" type="submit" disabled={!joinCode.trim()}>
             [ JOIN ]
           </button>
         </form>
@@ -106,20 +94,9 @@ export default function Home({ onCreateRoom, onJoinRoom, roomError, themeId, onT
           )}
 
           {serverMode === "remote" && (
-            <>
-              <input
-                type="text"
-                className="server-url-input"
-                placeholder="http://your-server:9876"
-                value={remoteUrl}
-                onChange={(e) => handleUrlChange(e.target.value)}
-              />
-              <p className="server-hint">
-                {remoteUrl.trim()
-                  ? `Signaling via ${remoteUrl.trim()}`
-                  : "Enter your signaling server URL to connect."}
-              </p>
-            </>
+            <p className="server-hint">
+              Signaling via {DEFAULT_REMOTE_URL}
+            </p>
           )}
         </div>
       )}
