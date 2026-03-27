@@ -40,6 +40,7 @@ export function preloadRingtone(): void {
     .then((buf) => getCtx().decodeAudioData(buf))
     .then((decoded) => {
       ringtoneBuffer = decoded;
+      ringtoneLoading = false;
     })
     .catch(() => {
       ringtoneLoading = false;

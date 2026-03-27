@@ -10,6 +10,14 @@ from backend.main import app
 from backend.signaling import SignalingRoom, _TokenBucket
 
 
+def _create_room(client: TestClient) -> tuple[str, str]:
+    """Create a room via the API and return (room_code, token)."""
+    resp = client.post("/api/rooms")
+    assert resp.status_code == 200
+    data = resp.json()
+    return data["room_code"], data["token"]
+
+
 class TestSignalingRoom:
     """Unit tests for SignalingRoom logic."""
 
@@ -82,8 +90,9 @@ class TestSignalingWebSocket:
 
     def test_two_peers_get_peer_joined(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 msg1 = ws1.receive_json()
                 msg2 = ws2.receive_json()
                 assert msg1["type"] == "peer-joined"
@@ -91,13 +100,12 @@ class TestSignalingWebSocket:
 
     def test_offer_relay(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
-                # Consume peer-joined
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()
                 ws2.receive_json()
 
-                # Host sends offer → Joiner receives it
                 offer = json.dumps({"type": "offer", "sdp": "v=0\r\nfake-sdp"})
                 ws1.send_text(offer)
                 received = ws2.receive_json()
@@ -106,8 +114,9 @@ class TestSignalingWebSocket:
 
     def test_answer_relay(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()
                 ws2.receive_json()
 
@@ -118,8 +127,9 @@ class TestSignalingWebSocket:
 
     def test_ice_candidate_relay(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()
                 ws2.receive_json()
 
@@ -130,30 +140,28 @@ class TestSignalingWebSocket:
 
     def test_invalid_role_rejected(self):
         client = TestClient(app)
-        # Invalid role should be rejected with close code 4000
+        code, token = _create_room(client)
         with pytest.raises(Exception):
-            with client.websocket_connect("/ws?role=invalid") as ws:
+            with client.websocket_connect(f"/ws/{code}?role=invalid&token={token}") as ws:
                 pass
 
     def test_duplicate_role_replaces_old(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            # Second host connection replaces the first
-            with client.websocket_connect("/ws?role=host") as ws2:
-                # ws1 should be closed (replaced)
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws2:
                 with pytest.raises(WebSocketDisconnect):
                     ws1.receive_json()
 
     def test_invalid_message_silently_dropped(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()
                 ws2.receive_json()
 
-                # Send invalid message — should not be relayed
                 ws1.send_text("not valid json")
-                # Send a valid message after
                 ws1.send_text(json.dumps({"type": "offer", "sdp": "real"}))
                 received = ws2.receive_json()
                 assert received["type"] == "offer"
@@ -161,29 +169,27 @@ class TestSignalingWebSocket:
 
     def test_unknown_type_dropped(self):
         client = TestClient(app)
-        with client.websocket_connect("/ws?role=host") as ws1:
-            with client.websocket_connect("/ws?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()
                 ws2.receive_json()
 
                 ws1.send_text(json.dumps({"type": "hack", "payload": "evil"}))
-                # Follow up with valid message to confirm relay still works
                 ws1.send_text(json.dumps({"type": "answer", "sdp": "ok"}))
                 received = ws2.receive_json()
                 assert received["type"] == "answer"
 
     def test_peer_disconnect_notifies_other(self):
         """When one peer disconnects, the other receives peer-disconnected."""
-        import uuid
         import time
-        room_id = f"test-disconnect-{uuid.uuid4().hex[:8]}"
         client = TestClient(app)
-        with client.websocket_connect(f"/ws/{room_id}?role=host") as ws1:
-            with client.websocket_connect(f"/ws/{room_id}?role=join") as ws2:
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            with client.websocket_connect(f"/ws/{code}?role=join&token={token}") as ws2:
                 ws1.receive_json()  # peer-joined
                 ws2.receive_json()  # peer-joined
                 ws2.close()
-                # Give the server time to process the disconnect
                 time.sleep(0.5)
 
             # Read messages, skipping pings, looking for peer-disconnected
@@ -202,34 +208,42 @@ class TestSignalingWebSocket:
             assert found, "Expected peer-disconnected notification"
 
     def test_token_protection(self):
+        """Connections with wrong token are rejected."""
         client = TestClient(app)
-        # Host connects with a token
-        with client.websocket_connect("/ws?role=host&token=secret") as ws1:
-            # Another host tries to connect with WRONG token — socket is accepted then closed
-            with client.websocket_connect("/ws?role=host&token=wrong") as ws2:
-                # The hijacker should receive a close frame (4000)
+        code, token = _create_room(client)
+        # Host connects with correct token
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws1:
+            # Another host tries with WRONG token — should be rejected
+            with client.websocket_connect(f"/ws/{code}?role=host&token=wrong") as ws2:
                 with pytest.raises(Exception):
                     ws2.receive_json()
-            
-            # Another host tries to connect WITH CORRECT token - should succeed and replace ws1
-            with client.websocket_connect("/ws?role=host&token=secret") as ws3:
+
+            # Another host with CORRECT token — replaces ws1
+            with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws3:
                 with pytest.raises(WebSocketDisconnect):
                     ws1.receive_json()
+
+    def test_room_not_found_rejected(self):
+        """Connecting to a non-existent room is rejected."""
+        client = TestClient(app)
+        with pytest.raises(Exception):
+            with client.websocket_connect("/ws/NONEXIST?role=host&token=x") as ws:
+                ws.receive_json()
 
     def test_room_cleanup(self):
         from backend.signaling import manager
         import asyncio
-        
+
         client = TestClient(app)
-        # Connect to a specific room
-        with client.websocket_connect("/ws/cleanup-room?role=host") as ws:
-            pass # Disconnect immediately
-        
+        code, token = _create_room(client)
+        with client.websocket_connect(f"/ws/{code}?role=host&token={token}") as ws:
+            pass  # Disconnect immediately
+
         # Room should be in manager initially (empty but exists)
-        assert "cleanup-room" in manager._rooms
-        
+        assert code in manager._rooms
+
         # Run cleanup manually
         asyncio.run(manager.remove_empty_rooms())
-        
+
         # Room should be gone
-        assert "cleanup-room" not in manager._rooms
+        assert code not in manager._rooms

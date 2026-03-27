@@ -53,6 +53,7 @@ export default function useMicLevel(stream: MediaStream | null): number {
     const data = new Uint8Array(analyser.frequencyBinCount);
 
     const interval = setInterval(() => {
+      if (audioTrack.readyState === "ended") { setLevel(0); return; }
       if (ctx.state === "suspended") ctx.resume();
       analyser.getByteFrequencyData(data);
       // Use RMS for smoother, more representative level

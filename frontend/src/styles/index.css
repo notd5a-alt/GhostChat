@@ -22,6 +22,7 @@
   --ghost-border: rgba(71, 71, 71, 0.2);
   --accent: #3b82f6;
   --success: #4ade80;
+  --danger: #ef4444;
   --font-mono: "JetBrains Mono", "Space Grotesk", "Courier New", monospace;
 }
 
@@ -393,14 +394,15 @@ input[type="text"]:focus:placeholder-shown {
   border-color: var(--success);
   opacity: 0.85;
 }
-.incoming-call-pill .pill-reject {
-  background: var(--danger);
+.incoming-call-pill .btn.pill-reject {
+  background: var(--danger, #ef4444);
   color: var(--bg);
-  border-color: var(--danger);
+  border-color: var(--danger, #ef4444);
 }
-.incoming-call-pill .pill-reject:hover {
+.incoming-call-pill .btn.pill-reject:hover {
   background: #dc2626;
   border-color: #dc2626;
+  opacity: 1;
 }
 @keyframes pill-fade-in {
   from { opacity: 0; transform: translateY(-8px); }

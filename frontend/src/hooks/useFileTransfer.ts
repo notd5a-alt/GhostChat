@@ -12,6 +12,29 @@ import type { IncomingFile, OutgoingFile, FileTransferStatus } from "../types";
 const CHUNK_SIZE = 16384; // 16 KB
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB — compressed in memory, so limit to avoid OOM
 
+const MIME_RE = /^[\w.-]+\/[\w.+-]+$/;
+const MAX_NAME_LEN = 200;
+
+function sanitizeFileName(raw: unknown): string {
+  if (typeof raw !== "string" || !raw.trim()) return "download";
+  let name = raw.replace(/[/\\:\0]/g, "_").trim();
+  if (name.length > MAX_NAME_LEN) {
+    const dot = name.lastIndexOf(".");
+    if (dot > 0 && name.length - dot <= 10) {
+      name = name.slice(0, MAX_NAME_LEN - (name.length - dot)) + name.slice(dot);
+    } else {
+      name = name.slice(0, MAX_NAME_LEN);
+    }
+  }
+  return name || "download";
+}
+
+function sanitizeMimeType(raw: unknown): string {
+  if (typeof raw !== "string") return "application/octet-stream";
+  const t = raw.trim().toLowerCase();
+  return MIME_RE.test(t) ? t : "application/octet-stream";
+}
+
 interface PendingFile {
   name: string;
   size: number;
@@ -99,14 +122,18 @@ export default function useFileTransfer(
       if (ch.bufferedAmount > 65536) {
         ch.bufferedAmountLowThreshold = 16384;
         await new Promise<void>((resolve) => {
-          const handler = () => {
+          const cleanup = () => {
             ch.onbufferedamountlow = null;
+            ch.removeEventListener("close", onClose);
             resolve();
           };
-          ch.onbufferedamountlow = handler;
-          // Check immediately in case buffer already drained
-          if (ch.bufferedAmount <= 16384) {
-            handler();
+          // C2: Resolve if channel closes while waiting for buffer drain
+          const onClose = () => cleanup();
+          ch.addEventListener("close", onClose, { once: true });
+          ch.onbufferedamountlow = () => cleanup();
+          // Check immediately in case buffer already drained or channel closed
+          if (ch.bufferedAmount <= 16384 || ch.readyState !== "open") {
+            cleanup();
           }
         });
       }
@@ -140,6 +167,8 @@ export default function useFileTransfer(
     channelRef.current = channel;
     if (!channel) {
       // Channel dropped — mark pending transfers as paused
+      // H2: Clear active receive ID so new transfers can be accepted after reconnect
+      activeReceiveIdRef.current = null;
       for (const entry of Object.values(pendingRef.current)) {
         if (entry.status === "receiving") {
           entry.status = "paused";
@@ -207,8 +236,8 @@ export default function useFileTransfer(
             const compressedSize = (parsed.compressedSize as number) || size;
 
             // Validate metadata sizes (H12)
-            if (typeof size !== "number" || size < 0 || size > MAX_FILE_SIZE ||
-                typeof compressedSize !== "number" || compressedSize < 0 || compressedSize > MAX_FILE_SIZE ||
+            if (!Number.isFinite(size) || size < 0 || size > MAX_FILE_SIZE ||
+                !Number.isFinite(compressedSize) || compressedSize < 0 || compressedSize > MAX_FILE_SIZE ||
                 typeof id !== "string" || !id) {
               console.warn("Invalid file metadata, rejecting transfer");
               return;
@@ -222,11 +251,13 @@ export default function useFileTransfer(
 
             activeReceiveIdRef.current = id;
             const checksum = (parsed.checksum as string) || "";
+            const safeName = sanitizeFileName(parsed.name);
+            const safeMime = sanitizeMimeType(parsed.mimeType);
             pendingRef.current[id] = {
-              name: parsed.name as string,
+              name: safeName,
               size,
               compressedSize,
-              mimeType: parsed.mimeType as string,
+              mimeType: safeMime,
               checksum,
               chunks: [],
               receivedBytes: 0,
@@ -237,8 +268,8 @@ export default function useFileTransfer(
               ...prev,
               {
                 id,
-                name: parsed.name as string,
-                size: parsed.size as number,
+                name: safeName,
+                size,
                 compressedSize,
                 progress: 0,
                 blobUrl: null,
@@ -277,12 +308,17 @@ export default function useFileTransfer(
               setIncoming((prev) =>
                 prev.map((f) =>
                   f.id === id
-                    ? { ...f, progress: 1, blobUrl, status: "completed" as FileTransferStatus }
+                    ? { ...f, progress: 1, blobUrl, status: "completed" as FileTransferStatus, timestamp: Date.now() }
                     : f
                 )
               );
               playFileComplete();
             } catch (err) {
+              const leakedUrl = blobUrlsRef.current.get(id);
+              if (leakedUrl) {
+                URL.revokeObjectURL(leakedUrl);
+                blobUrlsRef.current.delete(id);
+              }
               delete pendingRef.current[id];
               setIncoming((prev) =>
                 prev.map((f) =>
@@ -335,6 +371,18 @@ export default function useFileTransfer(
                 playFileComplete();
                 sendResolveRef.current?.();
                 sendResolveRef.current = null;
+              } else {
+                // C2: Paused again during resume — release lock after timeout
+                // to prevent permanent lock if peer never sends another resume-req
+                setTimeout(() => {
+                  if (sendLockRef.current && activeSendRef.current?.id === send.id && !send.completed) {
+                    activeSendRef.current = null;
+                    sendLockRef.current = false;
+                    setOutgoing(null);
+                    sendResolveRef.current?.();
+                    sendResolveRef.current = null;
+                  }
+                }, 60_000);
               }
             }).catch((err) => {
               // H10: prevent permanent send lock on resume failure
@@ -435,8 +483,38 @@ export default function useFileTransfer(
     };
   }, []);
 
+  // M4: Auto-revoke blob URLs after 5 minutes to prevent memory accumulation
+  // during long sessions with many file transfers
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setIncoming((prev) =>
+        prev.map((f) => {
+          if (f.status === "completed" && f.blobUrl && f.timestamp && now - f.timestamp > 5 * 60 * 1000) {
+            URL.revokeObjectURL(f.blobUrl);
+            blobUrlsRef.current.delete(f.id);
+            return { ...f, blobUrl: null };
+          }
+          return f;
+        })
+      );
+    }, 60_000); // Check every minute
+    return () => clearInterval(interval);
+  }, []);
+
   const sendFile = useCallback(async (file: File) => {
-    if (sendLockRef.current) return;
+    // M5: Show feedback instead of silently dropping concurrent sends
+    if (sendLockRef.current) {
+      setOutgoing((prev) => prev ? { ...prev } : {
+        id: "busy",
+        name: file.name,
+        size: file.size,
+        compressedSize: 0,
+        bytesSent: 0,
+        status: "failed" as FileTransferStatus,
+      });
+      return;
+    }
     const ch = channelRef.current;
     if (!ch || ch.readyState !== "open") return;
     const key = hmacKeyRef.current;

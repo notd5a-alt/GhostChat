@@ -79,6 +79,7 @@ export interface IncomingFile {
   blobUrl: string | null;
   status: FileTransferStatus;
   error?: string;
+  timestamp?: number;  // M4: Completion time for auto-revoke of blob URLs
 }
 
 export interface OutgoingFile {

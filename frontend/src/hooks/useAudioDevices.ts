@@ -27,6 +27,7 @@ export default function useAudioDevices(
   pcRef: React.MutableRefObject<RTCPeerConnection | null>,
   remoteAudioRef: React.MutableRefObject<HTMLVideoElement | null>,
   setLocalStream: (fn: (s: MediaStream | null) => MediaStream | null) => void,
+  localStream: MediaStream | null,
 ): AudioDevicesHook {
   const [inputDevices, setInputDevices] = useState<AudioDevice[]>([]);
   const [outputDevices, setOutputDevices] = useState<AudioDevice[]>([]);
@@ -68,11 +69,10 @@ export default function useAudioDevices(
 
   // Re-enumerate when a call starts (labels become available after getUserMedia)
   useEffect(() => {
-    const stream = localStreamRef.current;
-    if (stream && stream.getAudioTracks().length > 0) {
+    if (localStream && localStream.getAudioTracks().length > 0) {
       enumerate();
     }
-  }, [localStreamRef.current?.id, enumerate]);
+  }, [localStream, enumerate]);
 
   const setInputDevice = useCallback(async (deviceId: string) => {
     const pc = pcRef.current;

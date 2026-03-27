@@ -37,6 +37,8 @@ export default function useSignaling(url: string | null): SignalingHook {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      // Guard: ignore if this socket was superseded by a new connection
+      if (wsRef.current !== ws) return;
       // Connection state logged via addLog to debug panel
       addLog(`WS open`);
       setState("open");
@@ -54,6 +56,11 @@ export default function useSignaling(url: string | null): SignalingHook {
       }
     };
     ws.onclose = (event: CloseEvent) => {
+      // Guard: ignore if this socket was superseded by a new connection.
+      // The old socket's onclose fires asynchronously after ws.close() — if a
+      // new connection was created in the meantime, we must not clobber its state.
+      if (wsRef.current !== ws) return;
+
       // Connection state logged via addLog to debug panel
       addLog(`WS closed code=${event.code} reason=${event.reason}`);
       wsRef.current = null;
@@ -93,6 +100,8 @@ export default function useSignaling(url: string | null): SignalingHook {
       addLog(`WS error`);
     };
     ws.onmessage = (e: MessageEvent) => {
+      // Guard: ignore if this socket was superseded by a new connection
+      if (wsRef.current !== ws) return;
       try {
         const msg = JSON.parse(e.data) as SignalingMessage;
         // Auto-reply to server heartbeat pings — prevents 5min timeout teardown

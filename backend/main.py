@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import socket
 import traceback
 from pathlib import Path
@@ -14,7 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from backend.signaling import manager, RoomLimitError
+from backend.signaling import manager, RoomLimitError, WS_ACCEPT_TIMEOUT
 
 logger = logging.getLogger("synced.server")
 
@@ -41,6 +42,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'wasm-unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "connect-src 'self' ws: wss:; "
+            "media-src 'self' blob:; "
+            "img-src 'self' data: blob:; "
+            "object-src 'none'; "
+            "base-uri 'self'"
+        )
         return response
 
 
@@ -49,6 +61,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if os.environ.get("SYNCED_DEBUG") == "1":
+        logger.warning(
+            "SYNCED_DEBUG is enabled — /api/debug endpoint is accessible. "
+            "Do NOT use in production."
+        )
     cleanup_task = asyncio.create_task(manager.cleanup_loop(60))
     yield
     cleanup_task.cancel()
@@ -97,7 +114,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_allowed_origins(),
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Accept"],
 )
 
 
@@ -106,8 +123,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled exception on %s %s:\n%s",
-                 request.method, request.url.path, traceback.format_exc())
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
+    logger.debug("Traceback:\n%s", traceback.format_exc())
     return JSONResponse(status_code=500, content={"error": "internal server error"})
 
 
@@ -121,27 +138,41 @@ async def info():
 
 @app.post("/api/rooms")
 async def create_room():
-    """Create a new room and return a short room code."""
+    """Create a new room and return a short room code + token."""
     try:
-        code = await manager.create_room()
-        return {"room_code": code}
+        code, token = await manager.create_room()
+        return {"room_code": code, "token": token}
     except RoomLimitError:
         return JSONResponse(status_code=503, content={"error": "Server at capacity"})
 
 
+_ROOM_CODE_RE = re.compile(r"^[A-HJKL-NP-Z2-9]{6}$")
+
+
 @app.get("/api/rooms/{code}")
 async def check_room(code: str):
-    """Check if a room exists and is joinable."""
-    exists, joinable = await manager.room_exists(code.upper())
-    return {"exists": exists, "joinable": joinable}
+    """Check if a room exists and is joinable. Returns the room token if joinable."""
+    upper = code.upper().strip()
+    if not _ROOM_CODE_RE.match(upper):
+        return {"exists": False, "joinable": False}
+    exists, joinable, token = await manager.room_info(upper)
+    resp: dict = {"exists": exists, "joinable": joinable}
+    if joinable and token:
+        resp["token"] = token
+    return resp
 
 
 @app.get("/api/debug")
-async def debug(room_id: str = "default"):
-    """Debug endpoint — only available when SYNCED_DEBUG=1."""
+async def debug(request: Request, room_id: str = "default"):
+    """Debug endpoint — only available when SYNCED_DEBUG=1 and from localhost."""
     if os.environ.get("SYNCED_DEBUG") != "1":
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    client_host = request.client.host if request.client else None
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     room = await manager.get_room(room_id)
+    if not room:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
     return {
         "room_id": room_id,
         "peers": list(room._peers.keys()),
@@ -207,26 +238,47 @@ def _get_allowed_ws_origins() -> set[str]:
 @app.websocket("/ws")
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(ws: WebSocket, room_id: str = "default", role: str = "host", token: str | None = None):
-    # Validate origin — browsers always send Origin on WS handshakes
+    # Validate origin — browsers always send Origin on WS handshakes.
+    # Reject missing origins to prevent non-browser clients from bypassing validation.
     origin = (ws.headers.get("origin") or "").rstrip("/")
     if not _allow_all_origins:
         allowed = _get_allowed_ws_origins()
-        if not origin:
-            logger.debug("WebSocket connection with no Origin header (non-browser client)")
-        elif origin not in allowed:
+        if not origin or origin not in allowed:
             logger.warning("Rejected WebSocket from origin %r (allowed: %s)", origin, allowed)
             # Must accept before close — Starlette raises RuntimeError on close of unaccepted WS
-            await ws.accept()
-            await ws.close(code=4003, reason="Forbidden origin")
+            # H1: Timeout on accept to prevent Slowloris-style attacks
+            try:
+                await asyncio.wait_for(ws.accept(), timeout=WS_ACCEPT_TIMEOUT)
+                await ws.close(code=4003, reason="Forbidden origin")
+            except asyncio.TimeoutError:
+                logger.warning("WebSocket accept timeout during origin rejection")
             return
 
-    try:
-        room = await manager.get_room(room_id)
-    except RoomLimitError:
-        logger.warning("Room limit reached, rejecting WebSocket for room %s", room_id)
-        await ws.close(code=4004, reason="Server at capacity")
+    # Per-IP connection limiting — prevent a single IP from opening many connections
+    client_ip = ws.client.host if ws.client else "unknown"
+    if not await manager.acquire_ip(client_ip):
+        logger.warning("Rejected WebSocket from %s: too many connections", client_ip)
+        try:
+            await asyncio.wait_for(ws.accept(), timeout=WS_ACCEPT_TIMEOUT)
+            await ws.close(code=4006, reason="Too many connections")
+        except asyncio.TimeoutError:
+            logger.warning("WebSocket accept timeout during IP limit rejection")
         return
-    await room.handle(ws, role, token)
+
+    room = await manager.get_room(room_id)
+    if not room:
+        await manager.release_ip(client_ip)
+        logger.warning("WebSocket rejected: room %s does not exist", room_id)
+        try:
+            await asyncio.wait_for(ws.accept(), timeout=WS_ACCEPT_TIMEOUT)
+            await ws.close(code=4005, reason="Room not found")
+        except asyncio.TimeoutError:
+            logger.warning("WebSocket accept timeout during room rejection")
+        return
+    try:
+        await room.handle(ws, role, token)
+    finally:
+        await manager.release_ip(client_ip)
 
 
 # ---------------------------------------------------------------------------

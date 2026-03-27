@@ -62,6 +62,7 @@ export default function useVAD(
 
     let holdTimeout: any = null;
     const interval = setInterval(() => {
+      if (audioTrack.readyState === "ended") return;
       if (ctx.state === "suspended") ctx.resume();
       analyser.getByteFrequencyData(data);
       // Weight toward voice frequency range (85Hz-3kHz) for better discrimination
@@ -126,6 +127,7 @@ export default function useVAD(
 
     let holdTimeout: any = null;
     const interval = setInterval(() => {
+      if (audioTrack.readyState === "ended") return;
       if (ctx.state === "suspended") ctx.resume();
       analyser.getByteFrequencyData(data);
       // Weight toward voice frequency range (85Hz-3kHz) for better discrimination

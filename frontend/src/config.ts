@@ -14,7 +14,7 @@ const MODE_KEY = "synced_server_mode";
 const URL_KEY = "synced_signaling_url";
 
 /** Default remote signaling server — always used for remote mode. */
-export const DEFAULT_REMOTE_URL = "http://synced-relay.duckdns.org:9876";
+export const DEFAULT_REMOTE_URL = "https://synced-relay.duckdns.org:9876";
 
 export function getServerMode(): ServerMode {
   const stored = localStorage.getItem(MODE_KEY);

@@ -57,7 +57,6 @@ describe('useWebRTC', () => {
     expect(result.current.fileChannel).toBeNull();
     expect(result.current.hmacKey).toBeNull();
     expect(result.current.callError).toBeNull();
-    expect(result.current.reinitCounter).toBe(0);
   });
 
   // 2. init() creates RTCPeerConnection with provided ICE config
@@ -273,8 +272,8 @@ describe('useWebRTC', () => {
     expect(result.current.connectionState).toBe('new');
   });
 
-  // 12. cleanup closes PC, stops media tracks, resets state, bumps reinitCounter
-  it('cleanup closes PC, resets state, bumps reinitCounter', () => {
+  // 12. cleanup closes PC, stops media tracks, resets state
+  it('cleanup closes PC and resets state', () => {
     const { result } = renderHook(() => useWebRTC(signaling, true));
 
     act(() => {
@@ -282,7 +281,6 @@ describe('useWebRTC', () => {
     });
 
     const pc = result.current.pcRef.current as any;
-    const initialCounter = result.current.reinitCounter;
 
     act(() => {
       result.current.cleanup();
@@ -295,7 +293,6 @@ describe('useWebRTC', () => {
     expect(result.current.fileChannel).toBeNull();
     expect(result.current.hmacKey).toBeNull();
     expect(result.current.callError).toBeNull();
-    expect(result.current.reinitCounter).toBe(initialCounter + 1);
   });
 
   // 13. startCall gets user media and adds tracks

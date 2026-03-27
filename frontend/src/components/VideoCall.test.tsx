@@ -5,7 +5,9 @@ import VideoCall from './VideoCall';
 
 const defaultProps = {
   localStream: null,
-  remoteStream: null,
+  remoteStream: new MediaStream(),
+  remoteScreenStream: new MediaStream(),
+  streamRevision: 0,
   screenStream: null,
   onStartCall: vi.fn(),
   onEndCall: vi.fn(),
@@ -38,9 +40,9 @@ describe('VideoCall', () => {
     ]);
     render(<VideoCall {...defaultProps} localStream={localStream} />);
 
-    expect(screen.getByText('[ MUTE ]')).toBeInTheDocument();
+    expect(screen.getByText('[ MIC ON ]')).toBeInTheDocument();
     expect(screen.getByText('[ DEAFEN ]')).toBeInTheDocument();
-    expect(screen.getByText('[ CAM ON ]')).toBeInTheDocument();
+    expect(screen.getByText('[ CAM OFF ]')).toBeInTheDocument();
     expect(screen.getByText('[ END CALL ]')).toBeInTheDocument();
   });
 

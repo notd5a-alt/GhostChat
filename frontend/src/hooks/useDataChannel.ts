@@ -52,9 +52,12 @@ export default function useDataChannel(
   useEffect(() => {
     channelRef.current = channel;
     if (!channel) {
-      // Reset typing indicator when channel closes to prevent stuck state
+      // Reset typing indicators when channel closes to prevent stuck state
       setPeerTyping(false);
       if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      // M3: Reset local typing state so sendTyping works correctly after reconnect
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      lastTypingSentRef.current = false;
       return;
     }
 
@@ -82,6 +85,7 @@ export default function useDataChannel(
         // Runtime validation — TypeScript types are erased, malformed peer messages can crash UI (H11)
         if (parsed.type === "text") {
           if (typeof parsed.id !== "string" || typeof parsed.content !== "string") return;
+          if (!Number.isFinite(parsed.timestamp) || parsed.timestamp < 0) return;
           setMessages((prev) => [
             ...prev,
             { ...parsed, from: "peer", reactions: {} },
@@ -136,13 +140,19 @@ export default function useDataChannel(
     };
   }, [channel]);
 
+  // M7: Enforce max message length to prevent data channel buffer overflow
+  const MAX_MESSAGE_LENGTH = 16000; // ~16KB — well within data channel limits
+
   const sendMessage = useCallback((text: string) => {
     const ch = channelRef.current;
     if (!ch || ch.readyState !== "open") return;
+    const content = text.length > MAX_MESSAGE_LENGTH
+      ? text.slice(0, MAX_MESSAGE_LENGTH) + "... (truncated)"
+      : text;
     const msg: DataChannelMessage = {
       type: "text",
       id: crypto.randomUUID(),
-      content: text,
+      content,
       timestamp: Date.now(),
     };
     signAndSend(ch, hmacKeyRef.current, msg).catch((err) =>

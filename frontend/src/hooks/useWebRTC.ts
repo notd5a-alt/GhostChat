@@ -12,8 +12,11 @@ export interface WebRTCHook {
   connectionState: string;
   chatChannel: RTCDataChannel | null;
   fileChannel: RTCDataChannel | null;
-  remoteStream: MediaStream | null;
-  remoteScreenStream: MediaStream | null;
+  remoteStream: MediaStream;
+  remoteScreenStream: MediaStream;
+  /** Incremented whenever remote tracks change (add/remove/mute/unmute). Use as
+   *  a dependency signal to recompute derived values like hasRemoteVideo. */
+  streamRevision: number;
   localStream: MediaStream | null;
   startCall: (withVideo?: boolean) => Promise<void>;
   endCall: () => void;
@@ -31,8 +34,6 @@ export interface WebRTCHook {
   audioProcessing: AudioProcessingState;
   toggleAudioProcessing: (key: keyof AudioProcessingState) => Promise<void>;
   setLocalStream: (fn: (s: MediaStream | null) => MediaStream | null) => void;
-  /** Increments on cleanup — used to trigger re-init from App.tsx */
-  reinitCounter: number;
 }
 
 export default function useWebRTC(signaling: SignalingHook, isHost: boolean): WebRTCHook {
@@ -42,6 +43,7 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
   const localStreamRef = useRef<MediaStream | null>(null);
   const makingOfferRef = useRef(false);
   const negotiationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const negotiationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHostRef = useRef(isHost);
   const signalingRef = useRef(signaling);
 
@@ -53,13 +55,12 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
   const cleaningUpRef = useRef(false);
 
   const [connectionState, setConnectionState] = useState("new");
-  const [reinitCounter, setReinitCounter] = useState(0);
   const [chatChannel, setChatChannel] = useState<RTCDataChannel | null>(null);
   const [fileChannel, setFileChannel] = useState<RTCDataChannel | null>(null);
   const remoteStreamRef = useRef<MediaStream>(new MediaStream());
-  const [remoteStream, setRemoteStream] = useState<MediaStream>(remoteStreamRef.current);
   const remoteScreenStreamRef = useRef<MediaStream>(new MediaStream());
-  const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
+  const [streamRevision, setStreamRevision] = useState(0);
+  const bumpRevision = useCallback(() => setStreamRevision((r) => r + 1), []);
   const pendingScreenTrackRef = useRef(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
@@ -130,6 +131,10 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
     pcRef.current = null;
     // Reset negotiation queue so pending ops don't run on closed PC
     negotiationQueueRef.current = Promise.resolve();
+    if (negotiationTimeoutRef.current !== null) {
+      clearTimeout(negotiationTimeoutRef.current);
+      negotiationTimeoutRef.current = null;
+    }
     makingOfferRef.current = false;
     chatChannelRef.current = null;
     fileChannelRef.current = null;
@@ -138,17 +143,13 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
     setLocalStream(null);
     setScreenStream(null);
     remoteStreamRef.current = new MediaStream();
-    setRemoteStream(remoteStreamRef.current);
     remoteScreenStreamRef.current = new MediaStream();
-    setRemoteScreenStream(null);
+    bumpRevision();
     setCallError(null);
     setHmacKey(null);
     hmacDerivedRef.current = false;
     setAudioProcessing({ noiseSuppression: true, echoCancellation: true, autoGainControl: true });
     setConnectionState("new");
-    // Bump counter so the init effect in App.tsx re-fires even when
-    // connectionState was already "new" (no answer received yet)
-    setReinitCounter((c) => c + 1);
 
     // Reset cleanup flag so next init() cycle works normally
     cleaningUpRef.current = false;
@@ -187,18 +188,35 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
       setConnectionState(pc.connectionState);
       if (pc.connectionState === "connected" && !hmacDerivedRef.current
           && pc.localDescription && pc.remoteDescription) {
-        // Set flag AFTER promise resolves, not before — if derivation fails,
-        // we can retry on the next connectionstatechange (H1)
-        hmacDerivedRef.current = true; // guard against concurrent calls
-        deriveHmacKey(pc.localDescription.sdp, pc.remoteDescription.sdp)
-          .then((key) => {
-            if (key) {
-              setHmacKey(key);
-            } else {
-              hmacDerivedRef.current = false; // allow retry
-            }
-          })
-          .catch(() => { hmacDerivedRef.current = false; });
+        // Guard prevents concurrent calls; retry with backoff on failure (C1)
+        hmacDerivedRef.current = true;
+        let retries = 0;
+        const maxRetries = 2;
+        const attemptDerive = () => {
+          if (!pc.localDescription?.sdp || !pc.remoteDescription?.sdp) return;
+          deriveHmacKey(pc.localDescription.sdp, pc.remoteDescription.sdp)
+            .then((key) => {
+              if (key) {
+                setHmacKey(key);
+              } else if (retries < maxRetries) {
+                retries++;
+                setTimeout(attemptDerive, 1000 * retries);
+              } else {
+                log("HMAC key derivation failed after retries");
+                hmacDerivedRef.current = false;
+              }
+            })
+            .catch(() => {
+              if (retries < maxRetries) {
+                retries++;
+                setTimeout(attemptDerive, 1000 * retries);
+              } else {
+                log("HMAC key derivation failed after retries");
+                hmacDerivedRef.current = false;
+              }
+            });
+        };
+        attemptDerive();
       }
     };
 
@@ -209,34 +227,26 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
       if (isScreen) pendingScreenTrackRef.current = false;
       const targetRef = isScreen ? remoteScreenStreamRef : remoteStreamRef;
       const target = targetRef.current;
-      const setter = isScreen ? setRemoteScreenStream : setRemoteStream;
 
       if (!target.getTracks().includes(e.track)) {
         target.addTrack(e.track);
-        setter(new MediaStream(target.getTracks()));
+        bumpRevision();
       }
 
-      // Force re-render on mute/unmute so App.tsx hasRemoteTracks re-evaluates
+      // Force re-render on mute/unmute so consumers re-evaluate track state
       // (tracks arrive muted, unmute when media flows, mute when remote ends call)
-      const triggerUpdate = () => {
-        const s = targetRef.current;
-        setter(new MediaStream(s.getTracks()));
-      };
-      e.track.onmute = triggerUpdate;
-      e.track.onunmute = triggerUpdate;
+      e.track.onmute = bumpRevision;
+      e.track.onunmute = bumpRevision;
 
       e.track.onended = () => {
         // Check both streams and remove from whichever contains the track
-        for (const [ref, set] of [
-          [remoteStreamRef, setRemoteStream],
-          [remoteScreenStreamRef, setRemoteScreenStream],
-        ] as const) {
+        for (const ref of [remoteStreamRef, remoteScreenStreamRef]) {
           const s = ref.current;
           if (s.getTracks().includes(e.track)) {
             s.removeTrack(e.track);
-            set(new MediaStream(s.getTracks()));
           }
         }
+        bumpRevision();
       };
     };
 
@@ -323,7 +333,10 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
         if (elapsed < MIN_NEGOTIATION_INTERVAL) {
           const delay = MIN_NEGOTIATION_INTERVAL - elapsed;
           log(`RTC negotiate delayed ${delay}ms (cooldown)`);
-          setTimeout(() => enqueueNegotiation(), delay);
+          negotiationTimeoutRef.current = setTimeout(() => {
+            negotiationTimeoutRef.current = null;
+            enqueueNegotiation();
+          }, delay);
         } else {
           enqueueNegotiation();
         }
@@ -404,7 +417,7 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
             // Clean up screen stream when peer stops sharing
             const screenStream = remoteScreenStreamRef.current;
             screenStream.getTracks().forEach((t) => screenStream.removeTrack(t));
-            setRemoteScreenStream(null);
+            bumpRevision();
           }
         } else if (msg.type === "peer-disconnected") {
           peerPresent = false;
@@ -590,6 +603,8 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
       }
       const audioTrack = stream.getAudioTracks()[0];
       if (audioTrack) {
+        // Hint encoder to preserve fidelity for system audio (not speech-optimized)
+        if ("contentHint" in audioTrack) audioTrack.contentHint = "music";
         try {
           screenAudioSenderRef.current = pc.addTrack(audioTrack, stream);
         } catch (err) {
@@ -846,8 +861,9 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
     connectionState,
     chatChannel,
     fileChannel,
-    remoteStream,
-    remoteScreenStream,
+    remoteStream: remoteStreamRef.current,
+    remoteScreenStream: remoteScreenStreamRef.current,
+    streamRevision,
     localStream,
     startCall,
     endCall,
@@ -865,6 +881,5 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
     audioProcessing,
     toggleAudioProcessing,
     setLocalStream,
-    reinitCounter,
   };
 }

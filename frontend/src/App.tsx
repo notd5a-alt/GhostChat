@@ -34,6 +34,7 @@ export default function App() {
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [showThemePanel, setShowThemePanel] = useState(false);
   const sigConnectedRef = useRef(false);
+  const nsAutoEnabledRef = useRef(false);
 
   const signaling = useSignaling(sigUrl);
   const isHost = mode === "host";
@@ -49,6 +50,7 @@ export default function App() {
     webrtc.pcRef,
     remoteAudioRef,
     webrtc.setLocalStream,
+    webrtc.localStream,
   );
   const micLevel = useMicLevel(webrtc.localStream);
   const noiseSuppression = useNoiseSuppression();
@@ -62,6 +64,25 @@ export default function App() {
     }
   }, [webrtc.connectionState, screen, webrtc.getFingerprint]);
 
+  // Full state reset — shared by handleDisconnect and peer-disconnect effect.
+  // Idempotent: webrtc.cleanup() no-ops if PC is already null.
+  const fullReset = useCallback(() => {
+    nsAutoEnabledRef.current = false;
+    noiseSuppression.teardown();
+    webrtc.cleanup();
+    signaling.disconnect();
+    setScreen("home");
+    setMode(null);
+    setSigUrl(null);
+    setRoomCode(null);
+    setRoomError(null);
+    setFingerprint(null);
+    chat.clearMessages();
+    setActiveTab("chat");
+    setLastSeenSeq(0);
+    setUnreadDismissed(false);
+  }, [webrtc.cleanup, signaling.disconnect, chat.clearMessages, noiseSuppression.teardown]);
+
   // Handle peer disconnect during session
   useEffect(() => {
     if (screen === "session") {
@@ -70,14 +91,10 @@ export default function App() {
         webrtc.connectionState === "new"
       ) {
         playPeerDisconnected();
-        noiseSuppression.teardown();
-        setScreen("home");
-        setMode(null);
-        setSigUrl(null);
-        signaling.disconnect();
+        fullReset();
       }
     }
-  }, [webrtc.connectionState, screen, monitor.recoveryFailed, signaling.disconnect]);
+  }, [webrtc.connectionState, screen, monitor.recoveryFailed, fullReset]);
 
   const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
 
@@ -87,40 +104,44 @@ export default function App() {
     preloadRnnoise();
   }, []);
 
-  // Auto-enable AI noise suppression when a call starts
+  // Auto-enable AI noise suppression once when a call starts
   useEffect(() => {
-    if (!noiseSuppression.enabled && webrtc.localStream) {
-      const track = webrtc.localStreamRef.current?.getAudioTracks()[0];
-      if (track) {
-        noiseSuppression.toggle(track, webrtc.pcRef, webrtc.localStreamRef).then((newTrack) => {
-          if (newTrack) {
-            webrtc.setLocalStream((s) => s ? new MediaStream(s.getTracks()) : s);
-          }
-        });
-      }
+    if (nsAutoEnabledRef.current || noiseSuppression.enabled || !webrtc.localStream) return;
+    nsAutoEnabledRef.current = true;
+    const track = webrtc.localStreamRef.current?.getAudioTracks()[0];
+    if (track) {
+      noiseSuppression.toggle(track, webrtc.pcRef, webrtc.localStreamRef).then((newTrack) => {
+        if (newTrack) {
+          webrtc.setLocalStream((s) => s ? new MediaStream(s.getTracks()) : s);
+        }
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webrtc.localStream]);
 
   const handleCreateRoom = useCallback(async () => {
+    // Defensive: tear down any leftover state from a previous session
+    fullReset();
     warmUpAudio();
     setMode("host");
     setRoomError(null);
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/rooms`, { method: "POST" });
       if (!res.ok) throw new Error("Server at capacity");
-      const { room_code } = await res.json();
+      const { room_code, token } = await res.json();
       setRoomCode(room_code);
-      const wsUrl = `${getWsBaseUrl()}/ws/${room_code}?role=host`;
+      const wsUrl = `${getWsBaseUrl()}/ws/${room_code}?role=host&token=${encodeURIComponent(token)}`;
       setSigUrl(wsUrl);
       setScreen("lobby");
     } catch (err) {
       setRoomError(err instanceof Error ? err.message : "Failed to create room");
       setMode(null);
     }
-  }, []);
+  }, [fullReset]);
 
   const handleJoinRoom = useCallback(async (code: string) => {
+    // Defensive: tear down any leftover state from a previous session
+    fullReset();
     warmUpAudio();
     setMode("join");
     setRoomError(null);
@@ -134,19 +155,28 @@ export default function App() {
       return;
     }
 
+    // Validate room code format before any network calls (URL safety + enumeration defense)
+    if (!/^[A-HJKL-NP-Z2-9]{6}$/.test(upper)) {
+      setRoomError("Invalid room code. Codes are 6 characters (letters and numbers).");
+      setMode(null);
+      return;
+    }
+
+    let roomToken = "";
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/rooms/${upper}`);
-      const { exists, joinable } = await res.json();
-      if (!exists) {
+      const data = await res.json();
+      if (!data.exists) {
         setRoomError("Room not found. Check the code and try again.");
         setMode(null);
         return;
       }
-      if (!joinable) {
+      if (!data.joinable) {
         setRoomError("Room is full.");
         setMode(null);
         return;
       }
+      roomToken = data.token || "";
     } catch {
       setRoomError("Could not reach signaling server.");
       setMode(null);
@@ -154,9 +184,9 @@ export default function App() {
     }
 
     setRoomCode(upper);
-    setSigUrl(`${getWsBaseUrl()}/ws/${upper}?role=join`);
+    setSigUrl(`${getWsBaseUrl()}/ws/${upper}?role=join&token=${encodeURIComponent(roomToken)}`);
     setScreen("lobby");
-  }, [wsProto]);
+  }, [fullReset, wsProto]);
 
   // Connect signaling once URL is set (only once per sigUrl to avoid infinite reconnect loop)
   useEffect(() => {
@@ -174,18 +204,20 @@ export default function App() {
   // reconnect after disconnect). handleRetry() calls init() directly for retries.
   useEffect(() => {
     if (signaling.state === "open") {
+      let cancelled = false;
       signaling.addLog("effect: init");
       fetch(`${getApiBaseUrl()}/api/ice-config`)
         .then((r) => r.json())
-        .then((config) => webrtc.init(config))
-        .catch(() => webrtc.init(null));
+        .then((config) => { if (!cancelled) webrtc.init(config); })
+        .catch(() => { if (!cancelled) webrtc.init(null); });
+      return () => { cancelled = true; };
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signaling.state, webrtc.init, signaling.addLog]);
 
   // Ringtone logic — plays for both caller (ringback) and receiver (incoming)
   const hasRemoteTracks = webrtc.remoteStream
-    ?.getTracks()
+    .getTracks()
     .some((t) => t.readyState === "live" && !t.muted);
   const wasInCallRef = useRef(false);
   const [callRejected, setCallRejected] = useState(false);
@@ -375,17 +407,8 @@ export default function App() {
   }, [fingerprint, monitor.stats, monitor.connectionQuality, monitor.connectionType, isHost, chat.peerPresence, chat.clearMessages, theme]);
 
   const handleDisconnect = useCallback(() => {
-    noiseSuppression.teardown();
-    webrtc.cleanup();
-    signaling.disconnect();
-    setScreen("home");
-    setMode(null);
-    setSigUrl(null);
-    setRoomCode(null);
-    setRoomError(null);
-    setFingerprint(null);
-    chat.clearMessages();
-  }, [webrtc.cleanup, signaling.disconnect, chat.clearMessages, noiseSuppression.teardown]);
+    fullReset();
+  }, [fullReset]);
 
   const handleRetry = useCallback(() => {
     webrtc.cleanup();
@@ -532,6 +555,7 @@ export default function App() {
             localStream={webrtc.localStream}
             remoteStream={webrtc.remoteStream}
             remoteScreenStream={webrtc.remoteScreenStream}
+            streamRevision={webrtc.streamRevision}
             screenStream={webrtc.screenStream}
             onStartCall={webrtc.startCall}
             onEndCall={webrtc.endCall}

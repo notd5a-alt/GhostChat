@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import AudioVisualizer from "./AudioVisualizer";
 import GhostAsciiArt from "./GhostAsciiArt";
 import DiagnosticsPanel from "./DiagnosticsPanel";
@@ -7,8 +7,9 @@ import type { AudioDevicesHook } from "../hooks/useAudioDevices";
 
 interface VideoCallProps {
   localStream: MediaStream | null;
-  remoteStream: MediaStream | null;
-  remoteScreenStream: MediaStream | null;
+  remoteStream: MediaStream;
+  remoteScreenStream: MediaStream;
+  streamRevision: number;
   screenStream: MediaStream | null;
   onStartCall: (withVideo?: boolean) => Promise<void>;
   onEndCall: () => void;
@@ -38,6 +39,7 @@ export default function VideoCall({
   localStream,
   remoteStream,
   remoteScreenStream,
+  streamRevision,
   screenStream,
   onStartCall,
   onEndCall,
@@ -65,6 +67,8 @@ export default function VideoCall({
   const localRef = useRef<HTMLVideoElement>(null);
   const remoteRef = useRef<HTMLVideoElement>(null);
   const remoteScreenRef = useRef<HTMLVideoElement>(null);
+  const dualCameraRef = useRef<HTMLVideoElement>(null);
+  const dualScreenRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [deafened, setDeafened] = useState(false);
@@ -80,29 +84,56 @@ export default function VideoCall({
   }, [remoteAudioRef]);
 
   useEffect(() => {
-    if (localRef.current) localRef.current.srcObject = localStream || null;
+    if (!localRef.current) return;
+    // Clear srcObject when no video tracks to remove stale last frame
+    const hasVideoTrack = localStream?.getVideoTracks().some((t) => t.readyState === "live");
+    localRef.current.srcObject = hasVideoTrack ? localStream : null;
   }, [localStream]);
 
+  // Assign srcObject only when the stream object changes (stable refs from useWebRTC).
+  // streamRevision triggers re-evaluation of derived values but does NOT reassign srcObject
+  // unless the underlying MediaStream reference actually changed.
+  const prevRemoteRef = useRef<MediaStream | null>(null);
   useEffect(() => {
-    if (remoteRef.current) {
-      remoteRef.current.srcObject = localStream && remoteStream ? remoteStream : null;
+    if (remoteRef.current && remoteStream !== prevRemoteRef.current) {
+      remoteRef.current.srcObject = remoteStream;
+      prevRemoteRef.current = remoteStream;
     }
-  }, [remoteStream, localStream]);
+  }, [remoteStream, streamRevision]);
 
-  const hasRemoteVideo = remoteStream
-    ?.getVideoTracks()
-    .some((t) => t.readyState === "live" && !t.muted);
+  const prevRemoteScreenRef = useRef<MediaStream | null>(null);
+  useEffect(() => {
+    if (remoteScreenRef.current && remoteScreenStream !== prevRemoteScreenRef.current) {
+      remoteScreenRef.current.srcObject = remoteScreenStream;
+      prevRemoteScreenRef.current = remoteScreenStream;
+    }
+  }, [remoteScreenStream, streamRevision]);
+
+  // Dual-video srcObject assignment (stable — only on stream reference change)
+  useEffect(() => {
+    if (dualCameraRef.current) {
+      dualCameraRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
 
   useEffect(() => {
-    if (remoteScreenRef.current) {
-      remoteScreenRef.current.srcObject = remoteScreenStream || null;
+    if (dualScreenRef.current) {
+      dualScreenRef.current.srcObject = remoteScreenStream;
     }
   }, [remoteScreenStream]);
 
-  const hasRemoteScreen = remoteScreenStream
-    ?.getVideoTracks()
-    .some((t) => t.readyState === "live" && !t.muted);
-  const hasDualVideo = !!hasRemoteVideo && !!hasRemoteScreen;
+  // Derive track state using streamRevision as a re-evaluation signal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hasRemoteVideo = useMemo(() =>
+    remoteStream.getVideoTracks().some((t) => t.readyState === "live" && !t.muted),
+    [remoteStream, streamRevision]
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hasRemoteScreen = useMemo(() =>
+    remoteScreenStream.getVideoTracks().some((t) => t.readyState === "live" && !t.muted),
+    [remoteScreenStream, streamRevision]
+  );
+  const hasDualVideo = hasRemoteVideo && hasRemoteScreen;
 
   // Reset expanded view when dual video mode ends
   useEffect(() => {
@@ -113,10 +144,12 @@ export default function VideoCall({
     if (screenRef.current) screenRef.current.srcObject = screenStream || null;
   }, [screenStream]);
 
-  const hasRemoteTracks = remoteStream
-    ?.getTracks()
-    .some((t) => t.readyState === "live" && !t.muted)
-    || hasRemoteScreen;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hasRemoteTracks = useMemo(() =>
+    remoteStream.getTracks().some((t) => t.readyState === "live" && !t.muted)
+    || hasRemoteScreen,
+    [remoteStream, streamRevision, hasRemoteScreen]
+  );
 
   const audioEnabled = localStream?.getAudioTracks()[0]?.enabled;
   const hasVideo = localStream?.getVideoTracks().some((t) => t.readyState === "live" && !t.muted);
@@ -199,7 +232,11 @@ export default function VideoCall({
               : "none",
             cursor: expandedView === "camera" ? "pointer" : "default",
           }}
+          role={expandedView === "camera" ? "button" : undefined}
+          tabIndex={expandedView === "camera" ? 0 : undefined}
+          aria-label={expandedView === "camera" ? "Return to split view" : undefined}
           onClick={expandedView === "camera" ? () => setExpandedView(null) : undefined}
+          onKeyDown={expandedView === "camera" ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedView(null); } } : undefined}
         />
         {/* Always-mounted remote screen share video */}
         <video
@@ -213,31 +250,48 @@ export default function VideoCall({
               : "none",
             cursor: expandedView === "screen" ? "pointer" : "default",
           }}
+          role={expandedView === "screen" ? "button" : undefined}
+          tabIndex={expandedView === "screen" ? 0 : undefined}
+          aria-label={expandedView === "screen" ? "Return to split view" : undefined}
           onClick={expandedView === "screen" ? () => setExpandedView(null) : undefined}
+          onKeyDown={expandedView === "screen" ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedView(null); } } : undefined}
         />
-        {/* Dual video side-by-side layout */}
-        {hasDualVideo && expandedView === null && (
-          <div className="dual-video-container">
-            <div className="dual-video-item" onClick={() => setExpandedView("camera")}>
-              <video
-                autoPlay
-                playsInline
-                muted
-                ref={(el) => { if (el && remoteStream) el.srcObject = remoteStream; }}
-              />
-              <span className="dual-video-label">CAMERA</span>
-            </div>
-            <div className="dual-video-item" onClick={() => setExpandedView("screen")}>
-              <video
-                autoPlay
-                playsInline
-                muted
-                ref={(el) => { if (el && remoteScreenStream) el.srcObject = remoteScreenStream; }}
-              />
-              <span className="dual-video-label">SCREEN</span>
-            </div>
+        {/* Dual video side-by-side layout — always mounted to avoid DOM churn */}
+        <div className="dual-video-container"
+             style={{ display: hasDualVideo && expandedView === null ? "flex" : "none" }}>
+          <div
+            className="dual-video-item"
+            role="button"
+            tabIndex={0}
+            aria-label="Expand camera view"
+            onClick={() => setExpandedView("camera")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedView("camera"); } }}
+          >
+            <video
+              ref={dualCameraRef}
+              autoPlay
+              playsInline
+              muted
+            />
+            <span className="dual-video-label">CAMERA</span>
           </div>
-        )}
+          <div
+            className="dual-video-item"
+            role="button"
+            tabIndex={0}
+            aria-label="Expand screen share view"
+            onClick={() => setExpandedView("screen")}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpandedView("screen"); } }}
+          >
+            <video
+              ref={dualScreenRef}
+              autoPlay
+              playsInline
+              muted
+            />
+            <span className="dual-video-label">SCREEN</span>
+          </div>
+        </div>
         {/* Expanded view hint */}
         {hasDualVideo && expandedView !== null && (
           <span className="expanded-video-hint">Click to return to split view</span>
@@ -270,15 +324,14 @@ export default function VideoCall({
         {!hasRemoteTracks && inCall && (
           <p className="video-placeholder">Waiting for peer to join the call...</p>
         )}
-        {inCall && hasVideo && (
-          <video
-            ref={localRef}
-            className={`local-video ${localSpeaking ? "speaking" : ""}`}
-            autoPlay
-            playsInline
-            muted
-          />
-        )}
+        <video
+          ref={localRef}
+          className={`local-video ${localSpeaking ? "speaking" : ""}`}
+          autoPlay
+          playsInline
+          muted
+          style={{ display: inCall && hasVideo ? "block" : "none" }}
+        />
         {isSharing && (
           <video
             ref={screenRef}
@@ -363,7 +416,7 @@ export default function VideoCall({
                 className={`btn ${audioEnabled ? "" : "muted"}`}
                 onClick={onToggleAudio}
               >
-                {audioEnabled ? "[ MUTE ]" : "[ UNMUTE ]"}
+                {audioEnabled ? "[ MIC ON ]" : "[ MIC OFF ]"}
               </button>
               <button
                 className={`btn ${deafened ? "muted" : ""}`}
@@ -393,10 +446,10 @@ export default function VideoCall({
             </div>
             <div className="controls-center">
               <button
-                className={`btn ${hasVideo ? "" : "muted"}`}
+                className={`btn ${hasVideo ? "active" : "muted"}`}
                 onClick={onToggleVideo}
               >
-                {hasVideo ? "[ CAM OFF ]" : "[ CAM ON ]"}
+                {hasVideo ? "[ CAM ON ]" : "[ CAM OFF ]"}
               </button>
               {!isSharing ? (
                 <button className="btn" onClick={onShareScreen}>
