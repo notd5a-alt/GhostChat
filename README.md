@@ -1,10 +1,10 @@
-# Synced
+<img width="1684" height="937" alt="image" src="https://github.com/user-attachments/assets/1843837b-e885-4a29-81bc-09bd2b9eddb1" /># Synced
 
 **Zero-trust peer-to-peer voice, video, text chat, and file sharing.**
 
 No accounts. No servers in the middle. No traces. All communication flows directly between peers over encrypted WebRTC connections. The signaling server only relays connection setup — it never sees your content.
 
-<img width="1693" height="981" alt="image" src="https://github.com/user-attachments/assets/2195ed8b-c962-42a5-9bfe-9f4b2812d937" />
+<img width="1684" height="937" alt="image" src="https://github.com/user-attachments/assets/cb11f3e8-8134-40aa-973e-520f8a652bdb" />
 
 ---
 
