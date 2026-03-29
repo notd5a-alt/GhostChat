@@ -26,6 +26,9 @@ def _watch_parent_stdin():
 def main():
     parser = argparse.ArgumentParser(description="Synced backend sidecar")
     parser.add_argument("--port", type=int, default=9876)
+    parser.add_argument("--log-level", default="info",
+                        choices=["debug", "info", "warning", "error"],
+                        help="Logging level (default: info)")
     args = parser.parse_args()
 
     # Start watchdog — if the Tauri parent dies, this thread kills us
@@ -41,7 +44,7 @@ def main():
         "backend.main:app",
         host="0.0.0.0",
         port=args.port,
-        log_level="info",
+        log_level=args.log_level,
     )
 
 

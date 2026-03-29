@@ -30,6 +30,7 @@ export default function Chat({
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const lastReadRef = useRef<string | null>(null);
+  const seenMsgIds = useRef(new Set<string>());
 
   useEffect(() => {
     const el = listRef.current;
@@ -74,10 +75,13 @@ export default function Chat({
         {messages.length === 0 && (
           <p className="empty">No messages yet. Say something!</p>
         )}
-        {messages.map((m, i) => (
+        {messages.map((m, i) => {
+          const isNew = !seenMsgIds.current.has(m.id);
+          if (isNew) seenMsgIds.current.add(m.id);
+          return (
           <div
             key={m.id || i}
-            className={`msg ${m.from}`}
+            className={`msg ${m.from}${isNew ? " msg-animate" : ""}`}
             onClick={() =>
               setPickerMsgId(pickerMsgId === m.id ? null : m.id)
             }
@@ -131,7 +135,8 @@ export default function Chat({
               <span className="msg-read">SEEN</span>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
       {cmdOutput && (
         <pre className="cmd-output">{cmdOutput}</pre>

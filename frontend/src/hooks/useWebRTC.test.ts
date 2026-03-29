@@ -22,6 +22,8 @@ const createMockSignaling = (): SignalingHook => ({
   state: 'open' as const,
   debugLog: [] as string[],
   addLog: vi.fn(),
+  reconnectAttempt: 0,
+  maxReconnectAttempts: 5,
 });
 
 /** After init(), extract the handler that was passed to signaling.onMessage */
@@ -393,5 +395,67 @@ describe('useWebRTC', () => {
 
     // Restore
     (globalThis as any).RTCPeerConnection = original;
+  });
+
+  // 17. Polite peer (joiner) rolls back and accepts incoming offer during collision
+  it('polite peer (joiner) accepts incoming offer during collision', async () => {
+    const { result } = renderHook(() => useWebRTC(signaling, false)); // joiner = polite
+    act(() => { result.current.init(null); });
+    const handler = getMessageHandler(signaling);
+    const pc = result.current.pcRef.current as any;
+
+    // Simulate collision: joiner is in have-local-offer state
+    pc.signalingState = 'have-local-offer';
+
+    await act(async () => {
+      await handler({ type: 'offer', sdp: 'v=0\r\ncollision-offer\r\n' });
+    });
+
+    // Polite peer should accept the offer (rollback + set remote)
+    expect(pc.setRemoteDescription).toHaveBeenCalled();
+    expect(pc.createAnswer).toHaveBeenCalled();
+  });
+
+  // 18. Impolite peer (host) ignores incoming offer during collision
+  it('impolite peer (host) ignores incoming offer during collision', async () => {
+    const { result } = renderHook(() => useWebRTC(signaling, true)); // host = impolite
+    act(() => { result.current.init(null); });
+    const handler = getMessageHandler(signaling);
+    const pc = result.current.pcRef.current as any;
+
+    // Simulate collision: host is in have-local-offer state
+    pc.signalingState = 'have-local-offer';
+    // Clear any prior calls from init
+    pc.setRemoteDescription.mockClear();
+    pc.createAnswer.mockClear();
+
+    await act(async () => {
+      await handler({ type: 'offer', sdp: 'v=0\r\ncollision-offer\r\n' });
+    });
+
+    // Impolite peer should NOT process the offer
+    expect(pc.setRemoteDescription).not.toHaveBeenCalled();
+    expect(pc.createAnswer).not.toHaveBeenCalled();
+  });
+
+  // 19. onnegotiationneeded handler is installed and guards on peerPresent
+  it('onnegotiationneeded is set up and suppresses negotiation before peer joins', () => {
+    const { result } = renderHook(() => useWebRTC(signaling, true));
+    act(() => { result.current.init(null); });
+    const pc = result.current.pcRef.current as any;
+
+    // onnegotiationneeded handler should be set
+    expect(pc.onnegotiationneeded).not.toBeNull();
+
+    // Simulate a changed negotiation state (new track)
+    const mockTrack = { kind: 'video', id: 'screen-track', stop: vi.fn() };
+    pc.getSenders.mockReturnValue([{ track: mockTrack }]);
+
+    // Before peer-joined, onnegotiationneeded should NOT trigger offer creation
+    pc.createOffer.mockClear();
+    act(() => { pc.onnegotiationneeded(); });
+
+    // No offer created because no peer is present yet
+    expect(pc.createOffer).not.toHaveBeenCalled();
   });
 });

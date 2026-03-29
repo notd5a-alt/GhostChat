@@ -386,4 +386,58 @@ describe("useSignaling", () => {
     expect(MockWebSocket.lastInstance).toBeNull();
     expect(result.current.state).toBe("closed");
   });
+
+  // 15
+  it("exposes reconnectAttempt count during reconnection", () => {
+    const { result } = renderHook(() => useSignaling("ws://localhost:9876/ws"));
+
+    expect(result.current.reconnectAttempt).toBe(0);
+    expect(result.current.maxReconnectAttempts).toBe(5);
+
+    act(() => {
+      result.current.connect();
+    });
+    const firstWs = MockWebSocket.lastInstance!;
+    act(() => {
+      firstWs.simulateOpen();
+    });
+
+    // Unexpected close triggers reconnect
+    act(() => {
+      firstWs.simulateClose(1006, "abnormal");
+    });
+
+    // reconnectAttempt should reflect the upcoming attempt
+    expect(result.current.reconnectAttempt).toBe(1);
+    expect(result.current.state).toBe("reconnecting");
+
+    // After reconnect timer fires, second close increments again
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+    const secondWs = MockWebSocket.lastInstance!;
+    act(() => {
+      secondWs.simulateClose(1006, "");
+    });
+
+    expect(result.current.reconnectAttempt).toBe(2);
+  });
+
+  // 16
+  it("resets reconnectAttempt on successful reconnection", () => {
+    const { result } = renderHook(() => useSignaling("ws://localhost:9876/ws"));
+
+    act(() => { result.current.connect(); });
+    act(() => { MockWebSocket.lastInstance!.simulateOpen(); });
+    act(() => { MockWebSocket.lastInstance!.simulateClose(1006, ""); });
+
+    expect(result.current.reconnectAttempt).toBe(1);
+
+    // Reconnect succeeds
+    act(() => { vi.advanceTimersByTime(1200); });
+    act(() => { MockWebSocket.lastInstance!.simulateOpen(); });
+
+    expect(result.current.reconnectAttempt).toBe(0);
+    expect(result.current.state).toBe("open");
+  });
 });

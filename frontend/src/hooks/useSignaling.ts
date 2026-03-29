@@ -15,6 +15,7 @@ export default function useSignaling(url: string | null): SignalingHook {
   const urlRef = useRef(url);
   const [state, setState] = useState<SignalingState>("closed");
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const addLog = useCallback((msg: string) => {
     const ts = new Date().toLocaleTimeString();
@@ -44,6 +45,7 @@ export default function useSignaling(url: string | null): SignalingHook {
       setState("open");
       wasEverOpenRef.current = true;
       reconnectAttemptRef.current = 0;
+      setReconnectAttempt(0);
 
       // Flush queued outgoing messages (ICE candidates, etc. sent during reconnect)
       const queued = sendQueueRef.current;
@@ -83,6 +85,7 @@ export default function useSignaling(url: string | null): SignalingHook {
         // Add ±20% jitter to prevent thundering herd on server restart
         const delay = Math.max(500, baseDelay * (0.8 + Math.random() * 0.4));
         setState("reconnecting");
+        setReconnectAttempt(reconnectAttemptRef.current + 1);
         reconnectTimerRef.current = setTimeout(() => {
           reconnectAttemptRef.current++;
           createSocketRef.current?.();
@@ -150,6 +153,7 @@ export default function useSignaling(url: string | null): SignalingHook {
     if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     reconnectTimerRef.current = null;
     reconnectAttemptRef.current = 0;
+    setReconnectAttempt(0);
     wsRef.current?.close();
     wsRef.current = null;
     queueRef.current = [];
@@ -175,7 +179,7 @@ export default function useSignaling(url: string | null): SignalingHook {
   }, []);
 
   return useMemo(
-    () => ({ connect, send, disconnect, onMessage, state, debugLog, addLog }),
-    [connect, send, disconnect, onMessage, state, debugLog, addLog]
+    () => ({ connect, send, disconnect, onMessage, state, debugLog, addLog, reconnectAttempt, maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS }),
+    [connect, send, disconnect, onMessage, state, debugLog, addLog, reconnectAttempt]
   );
 }

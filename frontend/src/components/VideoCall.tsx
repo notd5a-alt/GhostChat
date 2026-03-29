@@ -352,14 +352,14 @@ export default function VideoCall({
           />
         )}
       </div>
-      {isRecovering && <p className="call-warning">Reconnecting...</p>}
+      {isRecovering && <p className="call-warning" role="status" aria-live="polite">Reconnecting...</p>}
       {recoveryFailed && (
-        <p className="call-error">Connection lost. Please end and restart the call.</p>
+        <p className="call-error" role="status" aria-live="polite">Connection lost. Please end and restart the call.</p>
       )}
       {signalingState === "reconnecting" && (
-        <p className="call-warning">Signaling reconnecting...</p>
+        <p className="call-warning" role="status" aria-live="polite">Signaling reconnecting...</p>
       )}
-      {callError && <p className="call-error">{callError}</p>}
+      {callError && <p className="call-error" role="status" aria-live="polite">{callError}</p>}
       {showDevices && inCall && (
         <div className="device-selector-panel">
           <div className="device-selector-row">
@@ -408,6 +408,7 @@ export default function VideoCall({
             <button
               className="btn primary"
               onClick={() => onStartCall(false)}
+              aria-label={hasRemoteTracks ? "Join call" : "Start call"}
             >
               {hasRemoteTracks ? "[ JOIN CALL ]" : "[ CALL ]"}
             </button>
@@ -418,18 +419,21 @@ export default function VideoCall({
               <button
                 className={`btn ${audioEnabled ? "" : "muted"}`}
                 onClick={onToggleAudio}
+                aria-label={audioEnabled ? "Mute microphone" : "Unmute microphone"}
               >
                 {audioEnabled ? "[ MIC ON ]" : "[ MIC OFF ]"}
               </button>
               <button
                 className={`btn ${deafened ? "muted" : ""}`}
                 onClick={onToggleDeafen}
+                aria-label={deafened ? "Undeafen" : "Deafen"}
               >
                 {deafened ? "[ UNDEAFEN ]" : "[ DEAFEN ]"}
               </button>
               <button
                 className={`btn ${audioProcessing?.echoCancellation ? "" : "muted"}`}
                 onClick={() => onToggleAudioProcessing("echoCancellation")}
+                aria-label={audioProcessing?.echoCancellation ? "Disable echo cancellation" : "Enable echo cancellation"}
               >
                 {audioProcessing?.echoCancellation ? "[ EC ON ]" : "[ EC OFF ]"}
               </button>
@@ -437,12 +441,14 @@ export default function VideoCall({
                 className={`btn ${aiNsEnabled ? "active" : "muted"}`}
                 onClick={onToggleAiNs}
                 title="AI Noise Suppression (RNNoise neural network)"
+                aria-label={aiNsEnabled ? "Disable AI noise suppression" : "Enable AI noise suppression"}
               >
                 {aiNsEnabled ? "[ AI NS ON ]" : "[ AI NS ]"}
               </button>
               <button
                 className={`btn ${showDevices ? "active" : ""}`}
                 onClick={() => setShowDevices((d) => !d)}
+                aria-label="Toggle audio device settings"
               >
                 [ DEVICES ]
               </button>
@@ -451,24 +457,25 @@ export default function VideoCall({
               <button
                 className={`btn ${hasVideo ? "active" : "muted"}`}
                 onClick={onToggleVideo}
+                aria-label={hasVideo ? "Turn off camera" : "Turn on camera"}
               >
                 {hasVideo ? "[ CAM ON ]" : "[ CAM OFF ]"}
               </button>
               {!isSharing ? (
-                <button className="btn" onClick={onShareScreen}>
+                <button className="btn" onClick={onShareScreen} aria-label="Share screen">
                   [ SHARE ]
                 </button>
               ) : (
-                <button className="btn muted" onClick={onStopScreenShare}>
+                <button className="btn muted" onClick={onStopScreenShare} aria-label="Stop sharing screen">
                   [ STOP SHARE ]
                 </button>
               )}
               {pipSupported && hasRemoteVideo && (
-                <button className="btn" onClick={togglePip}>
+                <button className="btn" onClick={togglePip} aria-label={isPip ? "Exit picture-in-picture" : "Enter picture-in-picture"}>
                   {isPip ? "[ EXIT PIP ]" : "[ PIP ]"}
                 </button>
               )}
-              <button className="btn" onClick={toggleFullscreen}>
+              <button className="btn" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
                 {isFullscreen ? "[ EXIT FS ]" : "[ FULLSCREEN ]"}
               </button>
             </div>
@@ -476,10 +483,11 @@ export default function VideoCall({
               <button
                 className={`btn ${showDiag ? "active" : ""}`}
                 onClick={() => setShowDiag((d) => !d)}
+                aria-label="Toggle diagnostics panel"
               >
                 [ DIAG ]
               </button>
-              <button className="btn danger" onClick={onEndCall}>
+              <button className="btn danger" onClick={onEndCall} aria-label="End call">
                 [ END CALL ]
               </button>
             </div>

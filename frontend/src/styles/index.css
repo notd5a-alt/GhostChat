@@ -615,7 +615,7 @@ input[type="text"]:focus:placeholder-shown {
   justify-content: center;
   overflow: hidden;
 }
-.remote-video { max-width: 100%; max-height: 100%; object-fit: contain; transition: box-shadow 200ms; }
+.remote-video { width: 100%; height: 100%; object-fit: contain; transition: box-shadow 200ms; }
 .remote-video.speaking { box-shadow: 0 0 0 3px var(--success), 0 0 16px color-mix(in srgb, var(--success) 30%, transparent); }
 
 /* Dual video: side-by-side layout when both camera and screen share are active */
@@ -975,6 +975,7 @@ input[type="text"]:focus:placeholder-shown {
 }
 .transfer-failed { border-left: 3px solid #f55; }
 .transfer-error { font-size: 0.75rem; color: #f55; }
+.transfer-warning { color: var(--text-dim); font-size: 0.75rem; font-style: italic; }
 .compression-badge {
   font-size: 0.7rem;
   color: var(--accent);

@@ -11,6 +11,8 @@ interface LobbyProps {
   signalingUrl: string | null;
   debugLog: string[];
   timeoutExpired: boolean;
+  reconnectAttempt: number;
+  maxReconnectAttempts: number;
   onRetry: () => void;
   onCancel: () => void;
 }
@@ -23,6 +25,8 @@ export default function Lobby({
   signalingUrl,
   debugLog,
   timeoutExpired,
+  reconnectAttempt,
+  maxReconnectAttempts,
   onRetry,
   onCancel,
 }: LobbyProps) {
@@ -56,7 +60,7 @@ export default function Lobby({
     : connectionState === "connecting"
     ? "Connecting..."
     : signalingState === "reconnecting"
-    ? "Reconnecting to server..."
+    ? `Reconnecting to server (${reconnectAttempt}/${maxReconnectAttempts})...`
     : signalingState === "open"
     ? "Waiting for peer..."
     : signalingState === "connecting"

@@ -549,6 +549,12 @@ export default function useWebRTC(signaling: SignalingHook, isHost: boolean): We
   const shareScreen = useCallback(async () => {
     const pc = pcRef.current;
     if (!pc || sharingInProgressRef.current) return;
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setCallError("Screen sharing is not supported in this browser.");
+      return;
+    }
+
     setCallError(null);
     sharingInProgressRef.current = true;
     try {

@@ -22,6 +22,8 @@ export interface SignalingHook {
   state: SignalingState;
   debugLog: string[];
   addLog: (msg: string) => void;
+  reconnectAttempt: number;
+  maxReconnectAttempts: number;
 }
 
 // --- Connection monitoring ---
@@ -79,6 +81,7 @@ export interface IncomingFile {
   blobUrl: string | null;
   status: FileTransferStatus;
   error?: string;
+  warning?: string;
   timestamp?: number;  // M4: Completion time for auto-revoke of blob URLs
 }
 

@@ -15,10 +15,12 @@ const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB — compressed in memory, so 
 const MIME_RE = /^[\w.-]+\/[\w.+-]+$/;
 const MAX_NAME_LEN = 200;
 
-function sanitizeFileName(raw: unknown): string {
-  if (typeof raw !== "string" || !raw.trim()) return "download";
+function sanitizeFileName(raw: unknown): { name: string; wasTruncated: boolean } {
+  if (typeof raw !== "string" || !raw.trim()) return { name: "download", wasTruncated: false };
   let name = raw.replace(/[/\\:\0]/g, "_").trim();
+  let wasTruncated = false;
   if (name.length > MAX_NAME_LEN) {
+    wasTruncated = true;
     const dot = name.lastIndexOf(".");
     if (dot > 0 && name.length - dot <= 10) {
       name = name.slice(0, MAX_NAME_LEN - (name.length - dot)) + name.slice(dot);
@@ -26,7 +28,7 @@ function sanitizeFileName(raw: unknown): string {
       name = name.slice(0, MAX_NAME_LEN);
     }
   }
-  return name || "download";
+  return { name: name || "download", wasTruncated };
 }
 
 function sanitizeMimeType(raw: unknown): string {
@@ -251,7 +253,7 @@ export default function useFileTransfer(
 
             activeReceiveIdRef.current = id;
             const checksum = (parsed.checksum as string) || "";
-            const safeName = sanitizeFileName(parsed.name);
+            const { name: safeName, wasTruncated } = sanitizeFileName(parsed.name);
             const safeMime = sanitizeMimeType(parsed.mimeType);
             pendingRef.current[id] = {
               name: safeName,
@@ -274,6 +276,7 @@ export default function useFileTransfer(
                 progress: 0,
                 blobUrl: null,
                 status: "receiving",
+                ...(wasTruncated ? { warning: `Filename truncated to ${MAX_NAME_LEN} chars` } : {}),
               },
             ]);
           } else if (msgType === "file-end") {

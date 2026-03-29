@@ -102,9 +102,10 @@ export default function FileShare({ incoming, outgoing, sentFiles, onSendFile, o
       )}
 
       {incoming.map((f) => (
-        <div key={f.id} className={`transfer ${f.status === "failed" ? "transfer-failed" : ""}`}>
+        <div key={f.id} className={`transfer ${f.status === "failed" ? "transfer-failed" : ""}${f.status === "completed" ? " transfer-done" : ""}`}>
           <div className="transfer-header">
             <span className="transfer-name">{f.name}</span>
+            {f.warning && <span className="transfer-warning">{f.warning}</span>}
             <span className="transfer-direction">received</span>
             {onCancel && (f.status === "receiving" || f.status === "paused") && (
               <button className="btn small danger" onClick={() => onCancel(f.id)}>

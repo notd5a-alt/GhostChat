@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets
 import time
 from typing import Dict
@@ -12,11 +13,11 @@ from fastapi import WebSocket, WebSocketDisconnect
 logger = logging.getLogger("synced.signaling")
 
 MAX_MESSAGE_SIZE = 65536  # 64 KB
-MAX_ROOMS = 100           # Cap total rooms (= 200 max connections)
-HEARTBEAT_INTERVAL = 30   # seconds between pings
-HEARTBEAT_TIMEOUT = 300   # close if no pong within this many seconds
+MAX_ROOMS = int(os.environ.get("SYNCED_MAX_ROOMS", 100))           # Cap total rooms (= 200 max connections)
+HEARTBEAT_INTERVAL = int(os.environ.get("SYNCED_HEARTBEAT_INTERVAL", 30))   # seconds between pings
+HEARTBEAT_TIMEOUT = int(os.environ.get("SYNCED_HEARTBEAT_TIMEOUT", 300))   # close if no pong within this many seconds
                           # (Chrome throttles background tabs to ~1 timer/min)
-IDLE_TIMEOUT = 1800       # close if no signaling messages in 30 minutes
+IDLE_TIMEOUT = int(os.environ.get("SYNCED_IDLE_TIMEOUT", 1800))       # close if no signaling messages in 30 minutes
 WS_ACCEPT_TIMEOUT = 10    # H1: seconds to wait for WebSocket handshake
 ALLOWED_TYPES = {"offer", "answer", "ice-candidate", "ping", "pong", "screen-sharing"}
 
@@ -25,11 +26,11 @@ ROOM_CODE_LENGTH = 6
 VALID_ROLES = {"host", "join"}
 
 # Rate limiting: token bucket per peer
-RATE_LIMIT = 100          # messages per second
-RATE_BURST = 200          # max burst size
+RATE_LIMIT = int(os.environ.get("SYNCED_RATE_LIMIT", 100))          # messages per second
+RATE_BURST = int(os.environ.get("SYNCED_RATE_BURST", 200))          # max burst size
 
 # Per-IP connection limiting
-MAX_CONNECTIONS_PER_IP = 4  # at most 4 concurrent WS connections per IP
+MAX_CONNECTIONS_PER_IP = int(os.environ.get("SYNCED_MAX_CONNECTIONS_PER_IP", 4))  # at most 4 concurrent WS connections per IP
 
 
 class _TokenBucket:

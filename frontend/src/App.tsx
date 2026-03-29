@@ -26,6 +26,8 @@ type Tab = "chat" | "video" | "files";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
+  const [screenAnim, setScreenAnim] = useState<"enter" | "exit" | "">("");
+  const pendingScreenRef = useRef<Screen | null>(null);
   const [mode, setMode] = useState<Mode>(null);
   const [sigUrl, setSigUrl] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
@@ -70,11 +72,11 @@ export default function App() {
   // Transition to session once WebRTC connects
   useEffect(() => {
     if (webrtc.connectionState === "connected" && screen === "lobby") {
-      setScreen("session");
+      changeScreen("session");
       setFingerprint(webrtc.getFingerprint());
       playPeerConnected();
     }
-  }, [webrtc.connectionState, screen, webrtc.getFingerprint]);
+  }, [webrtc.connectionState, screen, webrtc.getFingerprint, changeScreen]);
 
   // Full state reset — shared by handleDisconnect and peer-disconnect effect.
   // Idempotent: webrtc.cleanup() no-ops if PC is already null.
@@ -88,6 +90,8 @@ export default function App() {
     }
     signaling.disconnect();
     setScreen("home");
+    setScreenAnim("enter");
+    setTimeout(() => setScreenAnim(""), 250);
     setMode(null);
     setSigUrl(null);
     setRoomCode(null);
@@ -98,6 +102,19 @@ export default function App() {
     setLastSeenSeq(0);
     setUnreadDismissed(false);
   }, [webrtc.cleanup, signaling.disconnect, chat.clearMessages, noiseSuppression.teardown]);
+
+  // Animated screen transition — exit current screen, then enter the next
+  const changeScreen = useCallback((next: Screen) => {
+    if (screen === next || pendingScreenRef.current) return;
+    setScreenAnim("exit");
+    pendingScreenRef.current = next;
+    setTimeout(() => {
+      setScreen(next);
+      setScreenAnim("enter");
+      pendingScreenRef.current = null;
+      setTimeout(() => setScreenAnim(""), 250);
+    }, 150);
+  }, [screen]);
 
   // Handle peer disconnect during session
   useEffect(() => {
@@ -114,11 +131,17 @@ export default function App() {
 
   const wsProto = window.location.protocol === "https:" ? "wss" : "ws";
 
-  // Pre-load ringtone audio and RNNoise WASM on mount
+  // Pre-load ringtone audio on mount
   useEffect(() => {
     preloadRingtone();
-    preloadRnnoise();
   }, []);
+
+  // Lazy-load RNNoise WASM only when user opens the Call tab
+  useEffect(() => {
+    if (activeTab === "video") {
+      preloadRnnoise();
+    }
+  }, [activeTab]);
 
   // Auto-enable AI noise suppression once when a call starts
   useEffect(() => {
@@ -148,12 +171,12 @@ export default function App() {
       setRoomCode(room_code);
       const wsUrl = `${getWsBaseUrl()}/ws/${room_code}?role=host&token=${encodeURIComponent(token)}`;
       setSigUrl(wsUrl);
-      setScreen("lobby");
+      changeScreen("lobby");
     } catch (err) {
       setRoomError(err instanceof Error ? err.message : "Failed to create room");
       setMode(null);
     }
-  }, [fullReset]);
+  }, [fullReset, changeScreen]);
 
   const handleJoinRoom = useCallback(async (code: string) => {
     // Defensive: tear down any leftover state from a previous session
@@ -167,7 +190,7 @@ export default function App() {
     if (upper.includes(":")) {
       const proto = upper === window.location.host ? wsProto : "ws";
       setSigUrl(`${proto}://${upper}/ws?role=join`);
-      setScreen("lobby");
+      changeScreen("lobby");
       return;
     }
 
@@ -201,8 +224,8 @@ export default function App() {
 
     setRoomCode(upper);
     setSigUrl(`${getWsBaseUrl()}/ws/${upper}?role=join&token=${encodeURIComponent(roomToken)}`);
-    setScreen("lobby");
-  }, [fullReset, wsProto]);
+    changeScreen("lobby");
+  }, [fullReset, wsProto, changeScreen]);
 
   // Connect signaling once URL is set (only once per sigUrl to avoid infinite reconnect loop)
   useEffect(() => {
@@ -436,13 +459,15 @@ export default function App() {
       .catch(() => webrtc.init(null));
   }, [webrtc.cleanup, webrtc.init, monitor.setTimeoutExpired]);
 
+  const screenClass = screenAnim === "exit" ? "screen-exit" : screenAnim === "enter" ? "screen-enter" : "";
+
   if (screen === "home") {
-    return <Home onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} roomError={roomError} themeId={theme.themeId} onThemeChange={theme.setTheme} />;
+    return <div className={screenClass}><Home onCreateRoom={handleCreateRoom} onJoinRoom={handleJoinRoom} roomError={roomError} themeId={theme.themeId} onThemeChange={theme.setTheme} /></div>;
   }
 
   if (screen === "lobby") {
     return (
-      <Lobby
+      <div className={screenClass}><Lobby
         isHost={isHost}
         roomCode={roomCode}
         connectionState={webrtc.connectionState}
@@ -450,20 +475,22 @@ export default function App() {
         signalingUrl={sigUrl}
         debugLog={signaling.debugLog}
         timeoutExpired={monitor.timeoutExpired}
+        reconnectAttempt={signaling.reconnectAttempt}
+        maxReconnectAttempts={signaling.maxReconnectAttempts}
         onRetry={handleRetry}
         onCancel={handleDisconnect}
-      />
+      /></div>
     );
   }
 
   return (
-    <div className="session">
+    <div className={`session ${screenClass}`}>
       <header className="session-header">
-        <img src="/logo.png" alt="" className="header-logo" />
+        <img src="/logo.png" alt="Synced" className="header-logo" />
         <span className="brand">{"> "}SYNCED</span>
         {chat.peerPresence && (
-          <span className={`presence-indicator ${chat.peerPresence}`}>
-            <span className="presence-dot" />
+          <span className={`presence-indicator ${chat.peerPresence}`} role="status" aria-label={`Peer is ${chat.peerPresence}`}>
+            <span className="presence-dot" aria-hidden="true" />
             {chat.peerPresence !== "online" && chat.peerPresence.toUpperCase()}
           </span>
         )}
@@ -564,6 +591,7 @@ export default function App() {
 
       <main className="session-content">
         {activeTab === "chat" && (
+          <div className="tab-content" key="chat">
           <Chat
             messages={chat.messages}
             onSend={chat.sendMessage}
@@ -575,8 +603,10 @@ export default function App() {
             peerReadUpTo={chat.peerReadUpTo}
             peerTyping={chat.peerTyping}
           />
+          </div>
         )}
         {activeTab === "video" && (
+          <div className="tab-content" key="video">
           <VideoCall
             localStream={webrtc.localStream}
             remoteStream={webrtc.remoteStream}
@@ -617,8 +647,10 @@ export default function App() {
             deafened={deafened}
             onToggleDeafen={() => setDeafened(d => !d)}
           />
+          </div>
         )}
         {activeTab === "files" && (
+          <div className="tab-content" key="files">
           <FileShare
             incoming={files.incoming}
             outgoing={files.outgoing}
@@ -626,6 +658,7 @@ export default function App() {
             onSendFile={files.sendFile}
             onCancel={files.cancelTransfer}
           />
+          </div>
         )}
       </main>
     </div>

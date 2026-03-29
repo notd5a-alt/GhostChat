@@ -6,6 +6,7 @@ import mimetypes
 import os
 import re
 import socket
+import time
 import traceback
 from pathlib import Path
 
@@ -70,6 +71,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log method, path, status, and duration for every HTTP request."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.monotonic()
+        response = await call_next(request)
+        ms = (time.monotonic() - start) * 1000
+        logger.info("%s %s %d %.1fms", request.method, request.url.path, response.status_code, ms)
+        return response
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -91,8 +103,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Security headers
+# Security headers & access logging
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(AccessLogMiddleware)
 
 # CORS — allow localhost, LAN, and configured external origins
 _lan_ip = None
@@ -119,7 +132,7 @@ def _get_allowed_origins() -> list[str]:
     ]
     if _extra_origins_raw:
         for o in _extra_origins_raw.split(","):
-            o = o.strip().rstrip("/")
+            o = o.strip().rstrip("/").lower()
             if o and o not in origins:
                 origins.append(o)
     return origins
@@ -243,7 +256,7 @@ def _get_allowed_ws_origins() -> set[str]:
         }
         if _extra_origins_raw:
             for o in _extra_origins_raw.split(","):
-                o = o.strip().rstrip("/")
+                o = o.strip().rstrip("/").lower()
                 if o:
                     _ALLOWED_WS_ORIGINS.add(o)
     return _ALLOWED_WS_ORIGINS
@@ -254,7 +267,7 @@ def _get_allowed_ws_origins() -> set[str]:
 async def websocket_endpoint(ws: WebSocket, room_id: str = "default", role: str = "host", token: str | None = None):
     # Validate origin — browsers always send Origin on WS handshakes.
     # Reject missing origins to prevent non-browser clients from bypassing validation.
-    origin = (ws.headers.get("origin") or "").rstrip("/")
+    origin = (ws.headers.get("origin") or "").rstrip("/").lower()
     if not _allow_all_origins:
         allowed = _get_allowed_ws_origins()
         if not origin or origin not in allowed:

@@ -38,6 +38,7 @@ export default function useAudioDevices(
   selectedInputRef.current = selectedInput;
 
   const enumerate = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const inputs = devices
@@ -63,6 +64,7 @@ export default function useAudioDevices(
   // Enumerate on mount + device changes
   useEffect(() => {
     enumerate();
+    if (!navigator.mediaDevices) return;
     navigator.mediaDevices.addEventListener("devicechange", enumerate);
     return () => navigator.mediaDevices.removeEventListener("devicechange", enumerate);
   }, [enumerate]);
